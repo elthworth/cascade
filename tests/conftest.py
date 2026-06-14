@@ -1,0 +1,25 @@
+"""Make the repo root importable so ``import metronome`` works without an
+editable install, and expose shared fixtures."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from metronome.shared.config import ChainConfig, load_chain_config  # noqa: E402
+
+
+@pytest.fixture(scope="session")
+def cfg() -> ChainConfig:
+    return load_chain_config(REPO_ROOT / "chain.toml")
+
+
+@pytest.fixture(scope="session")
+def example_generator_dir() -> Path:
+    return REPO_ROOT / "scripts" / "example_generator"

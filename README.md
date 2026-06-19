@@ -35,13 +35,16 @@ design into an open competition.
 
 The **central invariant**: in a round, the king's generator and the
 challenger's generator are trained into models under a *byte-identical* contract
-— same Toto2 architecture and random initialisation, same token budget,
+— same Toto2 architecture and random initialisation, same compute budget,
 optimiser, generation seed, and training seed. The only thing that differs is the
 generator code. So the downstream eval is a controlled measurement of **data
 quality**, not a confound of data + luck + hyperparameters. Because the run
 starts from noise, the contract pins the *whole* recipe (see `chain.toml
-[training]`), not just a learning rate — and the budget is `train_tokens`, not
-epochs, so a tiny corpus can't win by being trivially memorised in 3 passes.
+[training]`). Each model trains for a fixed **wall-clock budget (~3h on the
+owner's reference GPU)**, enforced as a fixed token count (`hours × reference
+throughput`) so king and challenger get **identical compute** — a raw timer would
+let a generator win by emitting cheap-to-step data rather than better data, and
+wouldn't reproduce on a re-derived audit run.
 
 A challenger only takes the throne after winning **`dethrone_cp` consecutive
 rounds** by a confidence-bounded margin (paired bootstrap LCB clears the

@@ -73,11 +73,16 @@ class TrainingContractConfig:
     a 9-quantile pinball head). Pin the exact integers to that checkpoint's
     ``config.json`` before launch, same convention as ``base_arch_digest``.
 
-    Budget is expressed in ``train_tokens`` (total point-passes), **not epochs**:
-    from scratch on a small corpus, epochs-over-a-tiny-set leaves the model in
-    the high-variance early regime where data-quality differences are dominated
-    by optimisation noise. A fixed token budget is the compute the king's and
-    challenger's data compete under, and the main signal/cost knob.
+    Budget is expressed as **wall-clock hours on the owner's reference GPU**
+    (``target_train_hours``, e.g. 3) but *enforced* as a fixed token count —
+    ``target_train_hours × 3600 × ref_throughput_tokens_per_s`` (the
+    ``train_tokens`` property). Going through a pinned token count rather than a
+    raw timer matters: both king and challenger then see **identical compute**
+    regardless of data-dependent throughput (a pure timer would let a generator
+    win by emitting cheap-to-step data rather than better data), and a re-derived
+    audit run reproduces the same step count. ``max_train_seconds`` is the hard
+    wall-clock guard. Budgeting by compute (not epochs) also keeps a tiny corpus
+    from winning by being trivially memorised in a few passes.
     """
 
     # identity / architecture (pin to Datadog/Toto-2.0-4m config.json)
@@ -99,9 +104,11 @@ class TrainingContractConfig:
     # I/O lengths (must match [eval] so the trained model fits the eval windows)
     context_length: int
     horizon: int
-    # from-scratch budget — TOKENS, not epochs
-    train_tokens: int
-    warmup_tokens: int
+    # from-scratch budget — wall-clock hours on the reference GPU, enforced as a
+    # fixed (fair, reproducible) token count = hours × reference throughput
+    target_train_hours: float
+    ref_throughput_tokens_per_s: int
+    warmup_fraction: float
     batch_size: int
     # optimiser (u-muP transfer: tune on a small proxy, pin the result here)
     optimizer: str
@@ -111,6 +118,19 @@ class TrainingContractConfig:
     umup_base_d_model: int
     train_seed_salt: int
     max_train_seconds: int
+
+    @property
+    def train_tokens(self) -> int:
+        """Enforced training budget in point-passes: ``target_train_hours`` of the
+        reference GPU at ``ref_throughput_tokens_per_s``. King and challenger both
+        train to this exact count — fair (equal compute, not equal wall-clock,
+        which data-dependent throughput could skew) and reproducible (a re-derived
+        run matches)."""
+        return int(round(self.target_train_hours * 3600.0 * self.ref_throughput_tokens_per_s))
+
+    @property
+    def warmup_tokens(self) -> int:
+        return int(round(self.train_tokens * self.warmup_fraction))
 
 
 @dataclass(frozen=True)
@@ -275,8 +295,9 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             input_transform=str(t["input_transform"]),
             context_length=int(t["context_length"]),
             horizon=int(t["horizon"]),
-            train_tokens=int(t["train_tokens"]),
-            warmup_tokens=int(t["warmup_tokens"]),
+            target_train_hours=float(t["target_train_hours"]),
+            ref_throughput_tokens_per_s=int(t["ref_throughput_tokens_per_s"]),
+            warmup_fraction=float(t["warmup_fraction"]),
             batch_size=int(t["batch_size"]),
             optimizer=str(t["optimizer"]),
             base_lr=float(t["base_lr"]),

@@ -115,18 +115,35 @@ and refresh it periodically so it stays contamination-resistant.
 How big a model, and how much compute, so data-quality differences clear the
 undertraining-noise floor without making rounds unaffordable?
 
-**Default.** The smallest released size, **Toto2-4M**, budgeted by `train_tokens`
-(total point-passes), **not epochs** — from scratch on a small corpus, a few
-epochs leaves the model in the high-variance early regime where the KOTH verdict
-is decided by optimisation noise rather than data quality (and winner-take-all
-amplifies that into a lottery). `chain.toml [training] train_tokens` and the
-larger `[generator]` corpus budget are the signal/cost knobs.
+**Default.** The smallest released size, **Toto2-4M**, trained for a fixed
+**wall-clock budget — `target_train_hours` (3h) on the owner's reference GPU**.
+The intent is operational ("each model gets ~3h of GPU"), but the *enforced*
+budget is a fixed token count derived as `target_train_hours × 3600 ×
+ref_throughput_tokens_per_s`. Going through a pinned token count rather than a raw
+3h timer is deliberate and matters twice over:
 
-**Flip point.** `chain.toml [training]` (architecture + `train_tokens`) and the
-owner's `BaseTrainer`. Tune the recipe once on a small u-μP proxy width and pin
-the result here (u-μP transfers it across width). Raising `train_tokens` and the
-corpus size tightens the signal at linear GPU cost; calibrate `[scoring]
-win_margin_*` to the residual noise floor.
+* **Fairness / no throughput exploit.** A raw timer gives whichever corpus has
+  higher train-throughput (e.g. shorter series ⇒ more steps/sec) *more* gradient
+  updates in the same wall-clock — a generator could then win on cheap-to-step
+  data rather than better data, a confound orthogonal to quality. A fixed token
+  count gives king and challenger identical compute.
+* **Reproducibility.** Step count from a timer is hardware/load-dependent, so a
+  re-derived audit run wouldn't match; a pinned token count does.
+
+Budgeting by compute (not epochs) also stops a tiny corpus winning by being
+memorised in a few passes. `max_train_seconds` is the hard guard above the 3h
+target. The hours, throughput, and `[generator]` corpus size are the signal/cost
+knobs.
+
+**Flip point.** `chain.toml [training]` (`target_train_hours`,
+`ref_throughput_tokens_per_s`, architecture) and the owner's `BaseTrainer`.
+Measure `ref_throughput_tokens_per_s` once on the reference GPU; tune the recipe
+on a small u-μP proxy width and pin the result here (u-μP transfers it across
+width). Raising the hours or corpus size tightens the signal at linear GPU cost;
+calibrate `[scoring] win_margin_*` to the residual noise floor. If you genuinely
+want "equal GPU-hours" semantics instead of equal compute, drop the derivation
+and enforce `max_train_seconds` directly — but accept the throughput confound and
+loss of re-derivation auditability.
 
 ## 8. Univariate now, multivariate-ready
 

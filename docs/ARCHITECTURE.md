@@ -47,7 +47,9 @@ Once per round the trainer:
      `C = 1` today; the channel axis is carried so multivariate priors need no
      schema change),
    - trains a **fresh Toto2-4M from random init** via the owner's `BaseTrainer`
-     (`metronome.trainer.contract`) for the contract's `train_tokens` budget,
+     (`metronome.trainer.contract`) for the contract's budget — ~3h on the
+     reference GPU, enforced as a fixed `train_tokens` count so king and
+     challenger get identical compute,
    - uploads the checkpoint to HF.
 5. Publishes a signed `TrainingManifest` listing both trained-model pointers and
    the corpus/contract digests.

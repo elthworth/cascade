@@ -1,0 +1,244 @@
+"""Config loader for chain.toml — single source of truth for subnet config.
+
+Miners, the trainer, and validators all load from here. The schema is
+versioned; a file newer than this code warns and proceeds (operator-controlled
+file, deployed by hand alongside the binaries — the same policy horizon uses).
+"""
+
+from __future__ import annotations
+
+import sys
+import tomllib  # py311+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CHAIN_TOML = REPO_ROOT / "chain.toml"
+
+
+@dataclass(frozen=True)
+class SubnetConfig:
+    netuid: int
+    name: str
+    description: str
+
+
+@dataclass(frozen=True)
+class GeneratorConfig:
+    """Bounds the trainer enforces on every generator's output.
+
+    ``corpus_n_series`` series are drawn per training run; each must have
+    length in ``[min_length, max_length]`` and the run aborts if total emitted
+    points exceed ``max_total_points`` or generation runs past
+    ``max_generate_seconds``.
+    """
+
+    corpus_n_series: int
+    min_length: int
+    max_length: int
+    max_total_points: int
+    max_generate_seconds: int
+    max_memory_mb: int
+
+
+@dataclass(frozen=True)
+class TrainingContractConfig:
+    """The fixed training contract — identical for king and challenger.
+
+    The central invariant of metronome: the only thing that varies between the
+    two trained models is the generator's data. Every field here is held
+    constant across the pair so the eval is a controlled measurement of data
+    quality. ``base_arch_digest`` pins the architecture + initialisation so a
+    trainer can't silently swap models between rounds.
+    """
+
+    base_model: str
+    base_arch_digest: str
+    epochs: int
+    batch_size: int
+    learning_rate: float
+    context_length: int
+    horizon: int
+    train_seed_salt: int
+    max_train_seconds: int
+
+
+@dataclass(frozen=True)
+class EvalConfig:
+    eval_dataset: str
+    num_samples: int
+    n_windows: int
+    context_length: int
+    horizon: int
+
+
+@dataclass(frozen=True)
+class ScoringConfig:
+    win_margin_start: float
+    win_margin_end: float
+    margin_warmup_rounds: int
+    min_windows: int
+    bootstrap_B: int
+    bootstrap_alpha: float
+    dethrone_cp: int
+
+
+@dataclass(frozen=True)
+class DependencyConfig:
+    max_packages: int
+    allowed: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class StaticGuardConfig:
+    blocked: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ManifestConfig:
+    """Where the trainer publishes training receipts and the validator reads
+    them. ``hf_dataset_repo`` is an owner-controlled HF dataset repo;
+    ``trainer_hotkey`` is the only hotkey whose manifest a validator trusts."""
+
+    hf_dataset_repo: str
+    trainer_hotkey: str
+    poll_seconds: int
+
+
+@dataclass(frozen=True)
+class ValidatorConfig:
+    weight_set_interval_blocks: int
+    poll_seconds: int
+    hf_cache_seconds: int
+    state_db_path: str
+
+
+@dataclass(frozen=True)
+class ChainConfig:
+    schema_version: int
+    subnet: SubnetConfig
+    generator: GeneratorConfig
+    training: TrainingContractConfig
+    eval: EvalConfig
+    scoring: ScoringConfig
+    dependencies: DependencyConfig
+    static_guard: StaticGuardConfig
+    manifest: ManifestConfig
+    validator: ValidatorConfig
+    raw: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def netuid(self) -> int:
+        return self.subnet.netuid
+
+    def koth_params(self) -> Any:
+        """Build a :class:`metronome.eval.koth.KothParams` from ``[scoring]``.
+
+        Imported lazily so :mod:`metronome.shared.config` stays free of the
+        eval package at import time.
+        """
+        from ..eval.koth import KothParams
+
+        return KothParams(
+            win_margin_start=self.scoring.win_margin_start,
+            win_margin_end=self.scoring.win_margin_end,
+            margin_warmup_rounds=self.scoring.margin_warmup_rounds,
+            min_windows=self.scoring.min_windows,
+            bootstrap_B=self.scoring.bootstrap_B,
+            bootstrap_alpha=self.scoring.bootstrap_alpha,
+            dethrone_cp=self.scoring.dethrone_cp,
+        )
+
+
+def load_chain_config(path: Path | str | None = None) -> ChainConfig:
+    """Load and parse ``chain.toml``. Raises on a missing file or unsupported
+    (too-old) schema; warns and proceeds on a newer schema."""
+    p = Path(path) if path is not None else DEFAULT_CHAIN_TOML
+    if not p.exists():
+        raise FileNotFoundError(f"chain.toml not found at {p}")
+    with p.open("rb") as fh:
+        raw = tomllib.load(fh)
+
+    schema = int(raw.get("schema_version", 0))
+    if schema < 1:
+        raise ValueError(f"chain.toml schema_version={schema} unsupported; need >=1")
+    if schema > 1:
+        print(
+            f"warning: chain.toml schema_version={schema} is newer than this code (1); "
+            "fields may be ignored",
+            file=sys.stderr,
+        )
+
+    sub = raw.get("subnet", {})
+    g = raw["generator"]
+    t = raw["training"]
+    e = raw["eval"]
+    s = raw["scoring"]
+    d = raw["dependencies"]
+    sg = raw["static_guard"]
+    m = raw["manifest"]
+    v = raw["validator"]
+
+    return ChainConfig(
+        schema_version=schema,
+        subnet=SubnetConfig(
+            netuid=int(sub.get("netuid", 0)),
+            name=str(sub.get("name", "metronome")),
+            description=str(sub.get("description", "")),
+        ),
+        generator=GeneratorConfig(
+            corpus_n_series=int(g["corpus_n_series"]),
+            min_length=int(g["min_length"]),
+            max_length=int(g["max_length"]),
+            max_total_points=int(g["max_total_points"]),
+            max_generate_seconds=int(g["max_generate_seconds"]),
+            max_memory_mb=int(g["max_memory_mb"]),
+        ),
+        training=TrainingContractConfig(
+            base_model=str(t["base_model"]),
+            base_arch_digest=str(t["base_arch_digest"]),
+            epochs=int(t["epochs"]),
+            batch_size=int(t["batch_size"]),
+            learning_rate=float(t["learning_rate"]),
+            context_length=int(t["context_length"]),
+            horizon=int(t["horizon"]),
+            train_seed_salt=int(t["train_seed_salt"]),
+            max_train_seconds=int(t["max_train_seconds"]),
+        ),
+        eval=EvalConfig(
+            eval_dataset=str(e["eval_dataset"]),
+            num_samples=int(e["num_samples"]),
+            n_windows=int(e["n_windows"]),
+            context_length=int(e["context_length"]),
+            horizon=int(e["horizon"]),
+        ),
+        scoring=ScoringConfig(
+            win_margin_start=float(s["win_margin_start"]),
+            win_margin_end=float(s["win_margin_end"]),
+            margin_warmup_rounds=int(s["margin_warmup_rounds"]),
+            min_windows=int(s["min_windows"]),
+            bootstrap_B=int(s["bootstrap_B"]),
+            bootstrap_alpha=float(s["bootstrap_alpha"]),
+            dethrone_cp=int(s["dethrone_cp"]),
+        ),
+        dependencies=DependencyConfig(
+            max_packages=int(d["max_packages"]),
+            allowed=tuple(str(x) for x in d["allowed"]),
+        ),
+        static_guard=StaticGuardConfig(
+            blocked=tuple(str(x) for x in sg["blocked"]),
+        ),
+        manifest=ManifestConfig(
+            hf_dataset_repo=str(m["hf_dataset_repo"]),
+            trainer_hotkey=str(m["trainer_hotkey"]),
+            poll_seconds=int(m["poll_seconds"]),
+        ),
+        validator=ValidatorConfig(
+            weight_set_interval_blocks=int(v["weight_set_interval_blocks"]),
+            poll_seconds=int(v["poll_seconds"]),
+            hf_cache_seconds=int(v["hf_cache_seconds"]),
+            state_db_path=str(v["state_db_path"]),
+        ),
+        raw=raw,
+    )

@@ -1,0 +1,6 @@
+{
+  "name": "reference-trend-seasonal-ar1",
+  "description": "Trend + multi-seasonal + AR(1) + occasional level shifts. Fully seed-deterministic.",
+  "min_length": 128,
+  "max_length": 1024
+}

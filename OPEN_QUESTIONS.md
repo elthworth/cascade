@@ -92,12 +92,73 @@ that weakens reproducibility unless the per-miner seed is also chain-derived.
 
 **Question.** Where do the held-out real-world eval windows come from?
 
-**Default.** Left as an injectable boundary. `chain.toml [eval] eval_dataset`
-names the dataset (default `gift-eval`); `validator/loop.py` takes the window
-list as an argument so it's testable, and the concrete loader (pull GIFT-Eval /
-a held-out corpus, slice into `EvalWindow`s seeded by the round) is the TODO. It
-must produce the **same** windows for the king and challenger in a round.
+**Default.** A **private, rotating** pool. `chain.toml [eval] eval_source =
+"private-rotating"` and `window_pool` names an owner-controlled held-out corpus.
+`metronome/validator/windows.py` implements the selection: `RotatingWindowSource`
+draws a slice seeded by the round's block hash, so every validator scores the
+**same** windows for the king and challenger (paired, consensus-stable) while the
+slice **rotates each round** so no fixed set can be distribution-matched
+(TIME-benchmark philosophy). This was a public-`gift-eval` identifier in the
+scaffold; it was moved to private+rotating to close the benchmark-matching
+exploit (a named public benchmark is the easiest thing for a generator to overfit
+without producing generally-good data).
 
-**Flip point.** Add a `WindowSource` to `metronome/validator/` and wire it into
-the live validator loop (TODO in `validator/main.py`). Reusing horizon's
-`horizon-forge` data source is a reasonable option.
+**Flip point.** The seeded *selection/rotation* is implemented and tested; the
+**pool loader** (pull `window_pool`, slice into `EvalWindow`s via
+`build_windows_from_series`) is the remaining boundary, wired into the live
+validator loop (TODO in `validator/main.py`). Keep the pool genuinely held-out
+and refresh it periodically so it stays contamination-resistant.
+
+## 7. From-scratch budget and model size
+
+**Question.** metronome trains a Toto2 backbone from random init, twice per round.
+How big a model, and how much compute, so data-quality differences clear the
+undertraining-noise floor without making rounds unaffordable?
+
+**Default.** The smallest released size, **Toto2-4M**, trained for a fixed
+**wall-clock budget — `target_train_hours` (3h) on the owner's reference GPU**.
+The intent is operational ("each model gets ~3h of GPU"), but the *enforced*
+budget is a fixed token count derived as `target_train_hours × 3600 ×
+ref_throughput_tokens_per_s`. Going through a pinned token count rather than a raw
+3h timer is deliberate and matters twice over:
+
+* **Fairness / no throughput exploit.** A raw timer gives whichever corpus has
+  higher train-throughput (e.g. shorter series ⇒ more steps/sec) *more* gradient
+  updates in the same wall-clock — a generator could then win on cheap-to-step
+  data rather than better data, a confound orthogonal to quality. A fixed token
+  count gives king and challenger identical compute.
+* **Reproducibility.** Step count from a timer is hardware/load-dependent, so a
+  re-derived audit run wouldn't match; a pinned token count does.
+
+Budgeting by compute (not epochs) also stops a tiny corpus winning by being
+memorised in a few passes. `max_train_seconds` is the hard guard above the 3h
+target. The hours, throughput, and `[generator]` corpus size are the signal/cost
+knobs.
+
+**Flip point.** `chain.toml [training]` (`target_train_hours`,
+`ref_throughput_tokens_per_s`, architecture) and the owner's `BaseTrainer`.
+Measure `ref_throughput_tokens_per_s` once on the reference GPU; tune the recipe
+on a small u-μP proxy width and pin the result here (u-μP transfers it across
+width). Raising the hours or corpus size tightens the signal at linear GPU cost;
+calibrate `[scoring] win_margin_*` to the residual noise floor. If you genuinely
+want "equal GPU-hours" semantics instead of equal compute, drop the derivation
+and enforce `max_train_seconds` directly — but accept the throughput confound and
+loss of re-derivation auditability.
+
+## 8. Univariate now, multivariate-ready
+
+**Question.** Toto2 is multivariate (variate-axis attention). Should generators
+emit multivariate corpora?
+
+**Default.** **Univariate now, MV-ready schema.** `max_channels = 1`, so
+generators yield 1-D series, but every container carries a `(C, L)` channel axis
+— `check_series`/`drain_generator`, `corpus_digest`, `EvalWindow`, and the
+per-channel scorer all already handle `C > 1`. Turning on multivariate priors is
+a config flip (`[generator] max_channels`) plus a multivariate `BaseTrainer` and
+window pool — **no schema or digest-format change**, so univariate-era corpora
+and digests stay valid.
+
+**Flip point.** `chain.toml [generator] max_channels`; provide multivariate eval
+windows in the pool and a `BaseTrainer` that exercises Toto2's variate-axis
+attention. Until then the variate axis trains on `C = 1` (degenerate) and is
+effectively dormant.

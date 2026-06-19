@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from metronome.eval.crps import DEFAULT_QUANTILE_LEVELS
 from metronome.eval.koth import KothParams
 
 
@@ -10,9 +11,47 @@ def test_config_loads(cfg):
     assert cfg.subnet.name == "metronome"
     assert cfg.generator.corpus_n_series > 0
     assert cfg.generator.min_length < cfg.generator.max_length
-    assert cfg.training.epochs >= 1
+    assert cfg.generator.max_channels >= 1
+    # From-scratch Toto2 contract: budgeted by ~hours on the reference GPU,
+    # enforced as a fixed (derived) token count.
+    assert cfg.training.base_arch == "toto2"
+    assert cfg.training.target_train_hours > 0
+    assert cfg.training.train_tokens == round(
+        cfg.training.target_train_hours * 3600 * cfg.training.ref_throughput_tokens_per_s
+    )
+    assert cfg.training.head_dim == 64
+    assert cfg.training.num_quantiles == len(DEFAULT_QUANTILE_LEVELS)
+    # I/O lengths must line up with the eval windows the model is scored on.
+    assert cfg.training.horizon == cfg.eval.horizon
     assert cfg.eval.n_windows > 0
     assert cfg.scoring.dethrone_cp >= 1
+
+
+def test_train_budget_derives_from_hours(cfg):
+    from dataclasses import replace
+
+    # train_tokens = hours × 3600 × throughput; warmup_tokens = fraction of that.
+    c = replace(cfg.training, target_train_hours=2.0, ref_throughput_tokens_per_s=1000, warmup_fraction=0.1)
+    assert c.train_tokens == 2 * 3600 * 1000
+    assert c.warmup_tokens == round(c.train_tokens * 0.1)
+    # Doubling the hours doubles the enforced compute the data competes under.
+    assert replace(c, target_train_hours=4.0).train_tokens == 2 * c.train_tokens
+
+
+def test_training_contract_digest_covers_recipe(cfg):
+    # Every contract field is folded into the digest, so two recipes that differ
+    # in the optimiser, the token budget, or the architecture are not "identical
+    # terms". This is the controlled-experiment pin for from-scratch training.
+    from dataclasses import replace
+
+    from metronome.shared.manifest import contract_digest
+
+    base = contract_digest(cfg.training)
+    # Budget is pinned via the hours × throughput fields (train_tokens is derived).
+    assert base != contract_digest(replace(cfg.training, target_train_hours=cfg.training.target_train_hours + 1))
+    assert base != contract_digest(replace(cfg.training, ref_throughput_tokens_per_s=1))
+    assert base != contract_digest(replace(cfg.training, optimizer="adamw"))
+    assert base != contract_digest(replace(cfg.training, d_model=cfg.training.d_model * 2))
 
 
 def test_koth_params_builds_from_scoring(cfg):

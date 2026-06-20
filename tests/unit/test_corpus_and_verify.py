@@ -44,3 +44,19 @@ def test_verify_static_path_only(small_cfg, example_generator_dir):
     report = verify_repo(example_generator_dir, small_cfg, skip_runtime=True)
     assert report.ok
     assert report.runtime_skipped
+
+
+def test_build_round_corpus_cache_reuse(small_cfg, example_generator_dir):
+    from metronome.trainer.corpus import build_round_corpus
+
+    res = build_round_corpus(example_generator_dir, 0, small_cfg.generator, "cache_reuse")
+    assert res.n_series == 6
+    assert len(res.digest) == 64
+
+
+def test_build_round_corpus_streaming_not_wired_yet(small_cfg, example_generator_dir):
+    from metronome.trainer.corpus import CorpusError, build_round_corpus
+
+    for mode in ("stream_cpu", "stream_gpu"):
+        with pytest.raises(CorpusError):
+            build_round_corpus(example_generator_dir, 0, small_cfg.generator, mode)

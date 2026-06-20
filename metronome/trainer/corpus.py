@@ -97,6 +97,41 @@ def build_corpus(
     )
 
 
+# Feed modes that stream fresh data with no reuse (vs. cache_reuse, which draws a
+# fixed corpus once and lets the trainer pass over it multiple times).
+STREAMING_MODES = ("stream_cpu", "stream_gpu")
+
+
+def build_round_corpus(
+    repo_dir: Path | str,
+    generation_seed: int,
+    cfg: GeneratorConfig,
+    mode: str,
+) -> CorpusResult:
+    """Build a round's corpus according to the selected feed ``mode``.
+
+    * ``cache_reuse`` — draw a fixed corpus once (materialised) and let the base
+      trainer make multiple passes over it under the token budget. Byte-exact
+      auditable; reuses data. This is the path :func:`build_corpus` implements.
+    * ``stream_cpu`` / ``stream_gpu`` — live-stream fresh series with no reuse.
+      Not yet wired: streaming needs the
+      :class:`~metronome.trainer.contract.BaseTrainer` to consume an iterator +
+      token budget instead of a materialised ``Sequence`` (see
+      docs/ARCHITECTURE.md). Selecting one today raises so the choice fails
+      loudly rather than silently falling back to reuse.
+
+    Raises :class:`CorpusError` for an unwired or unknown mode.
+    """
+    if mode == "cache_reuse":
+        return build_corpus(repo_dir, generation_seed, cfg)
+    if mode in STREAMING_MODES:
+        raise CorpusError(
+            f"corpus_mode={mode!r} not yet wired: streaming requires the BaseTrainer "
+            "stream protocol (iterator + token budget). Use 'cache_reuse' for now."
+        )
+    raise CorpusError(f"unknown corpus_mode={mode!r}")
+
+
 def assert_corpus_reproducible(
     repo_dir: Path | str,
     generation_seed: int,

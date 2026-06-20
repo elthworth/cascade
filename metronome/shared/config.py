@@ -49,6 +49,22 @@ class GeneratorConfig:
     max_channels: int = 1
 
 
+# Corpus feed modes — how a generator's data reaches the trainer. Identical for
+# king and challenger (folded into contract_digest via TrainingContractConfig).
+#   stream_cpu  — live-stream fresh series from a CPU generator, no reuse.
+#   stream_gpu  — live-stream from a GPU-resident generator (torch); high
+#                 throughput, relaxed (tolerance/same-hardware) audit.
+#   cache_reuse — draw a fixed corpus once, then multi-pass it under the budget.
+CORPUS_MODES = ("stream_cpu", "stream_gpu", "cache_reuse")
+
+
+def validate_corpus_mode(mode: str) -> str:
+    """Return ``mode`` if it is a known corpus feed mode, else raise ValueError."""
+    if mode not in CORPUS_MODES:
+        raise ValueError(f"corpus_mode={mode!r} invalid; expected one of {CORPUS_MODES}")
+    return mode
+
+
 @dataclass(frozen=True)
 class TrainingContractConfig:
     """The fixed training contract — identical for king and challenger.
@@ -118,6 +134,8 @@ class TrainingContractConfig:
     umup_base_d_model: int
     train_seed_salt: int
     max_train_seconds: int
+    # corpus feed mode (one of CORPUS_MODES); identical for king & challenger
+    corpus_mode: str = "stream_cpu"
 
     @property
     def train_tokens(self) -> int:
@@ -306,6 +324,7 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             umup_base_d_model=int(t["umup_base_d_model"]),
             train_seed_salt=int(t["train_seed_salt"]),
             max_train_seconds=int(t["max_train_seconds"]),
+            corpus_mode=validate_corpus_mode(str(t.get("corpus_mode", "stream_cpu"))),
         ),
         eval=EvalConfig(
             eval_dataset=str(e["eval_dataset"]),

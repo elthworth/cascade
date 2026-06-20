@@ -33,7 +33,7 @@ from ..shared.manifest import (
     format_trained_pointer,
 )
 from .contract import BaseTrainer, RoundSeeds
-from .corpus import build_corpus
+from .corpus import build_round_corpus
 
 log = logging.getLogger("metronome.trainer")
 
@@ -121,7 +121,10 @@ class TrainerRunner:
         fetched = fetch_revision(
             gen.repo, gen.revision, cache_dir=self.hf_cache_dir, token=self.hf_token
         )
-        corpus = build_corpus(fetched.local_dir, seeds.generation_seed, self.cfg.generator)
+        corpus = build_round_corpus(
+            fetched.local_dir, seeds.generation_seed, self.cfg.generator,
+            self.cfg.training.corpus_mode,
+        )
         log.info(
             "round=%s role=%s hotkey=%s corpus n=%d points=%d digest=%s",
             seeds.base_seed, role, gen.hotkey, corpus.n_series, corpus.total_points,

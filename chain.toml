@@ -72,6 +72,16 @@ umup_base_d_model  = 256          # proxy width the HPs were tuned at
 train_seed_salt    = 1337        # mixed into the (shared) training seed
 max_train_seconds  = 14400       # hard wall-clock guard (> target_train_hours so the
                                   # token budget completes; kills a pathologically slow run)
+# corpus feed mode — how generator data reaches the trainer. Identical for king
+# and challenger (folded into contract_digest). Three modes to A/B for now:
+#   stream_cpu  — live-stream fresh series from a CPU generator, no reuse, until
+#                 the token budget. Byte-exact reproducible (rolling digest).
+#   stream_gpu  — live-stream from a GPU-resident generator (torch). High
+#                 throughput, but audit is tolerance/same-hardware, not byte-exact
+#                 (runtime not wired yet: needs torch on the allowlist + GPU sandbox).
+#   cache_reuse — draw a fixed corpus once, then multi-pass it under the budget.
+#                 Byte-exact, but reuses data (some memorisation).
+corpus_mode = "stream_cpu"
 
 [eval]
 # Held-out eval windows. The SAME windows are scored for king and challenger,

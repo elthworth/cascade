@@ -17,7 +17,7 @@ description = "Synthetic time-series training data, KOTH on CRPS + MASE of a Tot
 corpus_n_series      = 16384     # series drawn from each generator per training run
 min_length           = 64        # per-series length band (timesteps)
 max_length           = 2048
-max_total_points     = 64_000_000 # global cap on emitted points (memory/time guard)
+max_total_points     = 2_000_000_000 # raised off 64M; real corpus size is set by corpus_n_series + memory/streaming (see notes)
 max_generate_seconds = 1800      # wall-clock budget for draining the generator
 max_memory_mb        = 4096      # rlimit for the generation sandbox
 max_channels         = 1         # per-series variates. 1 = univariate (generators may
@@ -62,7 +62,7 @@ target_train_hours          = 3.0
 ref_throughput_tokens_per_s = 185000   # MEASURE on your reference GPU; sizes the budget
                                         # (3.0h × 3600 × 185000 ≈ 2.0B point-passes)
 warmup_fraction             = 0.05
-batch_size                  = 256
+batch_size                  = 64     # Toto 2.0 global batch size (Table 1); was 256
 # optimiser (u-muP transfer: tune once on a small proxy width, pin the result)
 optimizer          = "normuon_adamw"
 base_lr            = 4e-3         # u-muP width-independent learning rate

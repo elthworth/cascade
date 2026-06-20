@@ -113,18 +113,18 @@ def build_round_corpus(
     *,
     use_sandbox: bool = True,
     blocked: tuple[str, ...] = (),
+    allow_netns: bool = True,
 ) -> CorpusResult:
     """Build a round's corpus according to the selected feed ``mode``.
 
     * ``cache_reuse`` — draw a fixed corpus once (materialised) and let the base
       trainer make multiple passes over it under the token budget. Byte-exact
       auditable; reuses data. This is the path :func:`build_corpus` implements.
-    * ``stream_cpu`` / ``stream_gpu`` — live-stream fresh series with no reuse.
-      Not yet wired: streaming needs the
-      :class:`~metronome.trainer.contract.BaseTrainer` to consume an iterator +
-      token budget instead of a materialised ``Sequence`` (see
-      docs/ARCHITECTURE.md). Selecting one today raises so the choice fails
-      loudly rather than silently falling back to reuse.
+    * ``stream_cpu`` / ``stream_gpu`` — streaming feed modes, handled by
+      :func:`metronome.trainer.stream.open_round_stream`, not here.
+      ``build_round_corpus`` is the *materialised* helper (cache_reuse only) and
+      rejects stream modes so a miswired caller fails loudly rather than silently
+      falling back to reuse.
 
     ``use_sandbox`` (default True) runs the generator in the network-isolated,
     rlimited subprocess from :mod:`metronome.trainer.sandbox`; ``blocked`` is the
@@ -137,12 +137,14 @@ def build_round_corpus(
         if use_sandbox:
             from .sandbox import run_in_sandbox
 
-            return run_in_sandbox(repo_dir, generation_seed, cfg, blocked=tuple(blocked))
+            return run_in_sandbox(
+                repo_dir, generation_seed, cfg, blocked=tuple(blocked), allow_netns=allow_netns
+            )
         return build_corpus(repo_dir, generation_seed, cfg)
     if mode in STREAMING_MODES:
         raise CorpusError(
-            f"corpus_mode={mode!r} not yet wired: streaming requires the BaseTrainer "
-            "stream protocol (iterator + token budget). Use 'cache_reuse' for now."
+            f"corpus_mode={mode!r} streams via stream.open_round_stream, not "
+            "build_round_corpus (the materialised cache_reuse-only helper)."
         )
     raise CorpusError(f"unknown corpus_mode={mode!r}")
 

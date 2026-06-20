@@ -47,7 +47,9 @@ def test_build_round_corpus_cache_reuse(small_cfg, example_generator_dir):
     assert len(res.digest) == 64
 
 
-def test_build_round_corpus_streaming_not_wired_yet(small_cfg, example_generator_dir):
+def test_build_round_corpus_rejects_stream_modes(small_cfg, example_generator_dir):
+    # build_round_corpus is the materialised helper; streaming goes through
+    # stream.open_round_stream. It rejects stream modes so a miswired caller fails.
     from metronome.trainer.corpus import CorpusError, build_round_corpus
 
     for mode in ("stream_cpu", "stream_gpu"):

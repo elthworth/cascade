@@ -44,14 +44,16 @@ Once per round the trainer:
 3. Derives one `RoundSeeds` from the round's base seed (the chain block hash):
    a shared `generation_seed` and a shared `training_seed`.
 4. For the king and each challenger, **under that one shared seed pair**:
-   - materialises the generator repo, runs it in a sandbox, drains a validated
-     corpus (`metronome.trainer.corpus`) — a list of `(C, L)` series (univariate
-     `C = 1` today; the channel axis is carried so multivariate priors need no
-     schema change),
+   - opens the round's corpus stream (`metronome.trainer.stream.open_round_stream`,
+     selected by `[training] corpus_mode`): `stream_cpu` streams *fresh* `(C, L)`
+     series from a sandboxed generator with no reuse (rolling byte-exact digest);
+     `cache_reuse` draws a fixed corpus once (also sandboxed) and cycles it. Either
+     way the trainer gets one budget-capped iterator (univariate `C = 1` today;
+     the channel axis is carried so multivariate priors need no schema change),
    - trains a **fresh Toto2-4M from random init** via the owner's `BaseTrainer`
-     (`metronome.trainer.contract`) for the contract's budget — ~3h on the
-     reference GPU, enforced as a fixed `train_tokens` count so king and
-     challenger get identical compute,
+     (`metronome.trainer.contract`) — it pulls series until the stream ends, for
+     the contract's budget (~3h on the reference GPU, enforced as a fixed
+     `train_tokens` count so king and challenger get identical compute),
    - uploads the checkpoint to HF.
 5. Publishes a signed `TrainingManifest` listing both trained-model pointers and
    the corpus/contract digests.

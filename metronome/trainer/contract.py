@@ -22,7 +22,7 @@ at round start), so a second honest trainer reproduces the exact run.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -70,25 +70,35 @@ class TrainResult:
 class BaseTrainer(Protocol):
     """Owner-supplied training backend.
 
-    Implementations train a fresh copy of the base architecture on ``corpus``
-    and write a complete, uploadable checkpoint into ``out_dir``. The same
-    instance is reused for king and challenger within a round, so it MUST be
-    stateless across calls beyond the (immutable) base architecture — any
+    Implementations train a fresh copy of the base architecture by pulling
+    series from ``stream`` and write a complete, uploadable checkpoint into
+    ``out_dir``. ``stream`` yields canonical ``(C, L)`` float64 series and is
+    already budget-capped by the caller — iterate it to exhaustion. Use
+    ``token_budget`` (the contract's ``train_tokens``) to shape the LR schedule
+    (warmup/decay) so it lands as the stream ends.
+
+    The stream's nature follows ``contract.corpus_mode`` but the trainer need not
+    care: ``cache_reuse`` cycles a fixed corpus (data repeats), ``stream_cpu``
+    delivers fresh series with no reuse. Either way the trainer just trains on
+    what it pulls.
+
+    The same instance is reused for king and challenger within a round, so it
+    MUST be stateless across calls beyond the (immutable) base architecture — any
     leakage from king's run into challenger's would break the controlled
     comparison.
 
     This Protocol is the GPU boundary: everything above it in metronome is
-    numpy/CPU and unit-testable; the concrete trainer (e.g. a Chronos-style
-    encoder fine-tune) is the operator's to provide. See
-    ``docs/ARCHITECTURE.md`` for the reference shape.
+    numpy/CPU and unit-testable; the concrete trainer is the operator's to
+    provide. See ``docs/ARCHITECTURE.md`` for the reference shape.
     """
 
     def train(
         self,
-        corpus: Sequence[np.ndarray],
+        stream: Iterator[np.ndarray],
         contract: TrainingContractConfig,
         *,
         training_seed: int,
+        token_budget: int,
         out_dir: Path,
     ) -> TrainResult:
         ...

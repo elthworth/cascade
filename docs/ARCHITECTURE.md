@@ -28,9 +28,11 @@ single on-chain pointer:
 metro-v1:gen:hf:<org>/<repo>@<40-char-sha>
 ```
 
-The git SHA pins the generator code, `config.json`, and `requirements.txt`
-together. **No model weights** — that is the whole distinction from horizon.
-See `docs/INTERFACE.md`.
+The git SHA pins the generator code, `config.json`, `requirements.txt`, and any
+model weights together. A generator may itself be a trained model (safetensors
+only, size-capped) — the distinction from horizon is not "no weights" but *what
+is scored*: metronome scores the **data** (via a fixed model trained on it),
+horizon scores the submitted model directly. See `docs/INTERFACE.md`.
 
 ### 2. Trainer — owner-operated, the GPU boundary
 

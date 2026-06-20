@@ -46,6 +46,7 @@ class GeneratorConfig:
     max_total_points: int
     max_generate_seconds: int
     max_memory_mb: int
+    max_repo_mb: int = 2048  # cap on fetched submission bytes (code + safetensors weights)
     max_channels: int = 1
 
 
@@ -294,6 +295,7 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             max_total_points=int(g["max_total_points"]),
             max_generate_seconds=int(g["max_generate_seconds"]),
             max_memory_mb=int(g["max_memory_mb"]),
+            max_repo_mb=int(g.get("max_repo_mb", 2048)),
             max_channels=int(g.get("max_channels", 1)),
         ),
         training=TrainingContractConfig(

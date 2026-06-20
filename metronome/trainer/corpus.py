@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np
 
 from ..interface.generator import DataGenerator, drain_generator
+from ..interface.validation import check_repo_size
 from ..shared.config import GeneratorConfig
 from ..shared.manifest import corpus_digest
 
@@ -76,6 +77,9 @@ def build_corpus(
     offending generator simply fails to qualify this round (a bad generator can
     never affect the king's run).
     """
+    size = check_repo_size(repo_dir, cfg.max_repo_mb)
+    if not size.ok:
+        raise CorpusError(f"submission_too_large: {size.details}")
     gen = _load_generator(Path(repo_dir), generation_seed)
     try:
         series = drain_generator(

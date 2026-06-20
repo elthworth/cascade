@@ -3,7 +3,8 @@ fetch time so a miner sees the same failure messages locally.
 
 Sequence:
 
-1. Repo layout — required files present, no stray weight files.
+1. Repo layout + size — required files present, no pickle weight files
+   (safetensors OK), and total bytes <= max_repo_mb.
 2. Config — ``config.json`` parses as an object.
 3. Static guard on ``generator.py`` — AST scan for blocked imports.
 4. Requirements — hash-locked, allowlisted, <= max_packages.
@@ -26,6 +27,7 @@ from ..interface.validation import (
     ValidationResult,
     check_config,
     check_repo_layout,
+    check_repo_size,
     check_requirements_hash_locked,
 )
 from ..shared.config import ChainConfig
@@ -69,6 +71,10 @@ def verify_repo(
     if not layout.ok:
         failures.append(("repo_layout", layout))
         return VerifyReport(ok=False, failures=failures, runtime_skipped=skip_runtime)
+
+    size = check_repo_size(d, cfg.generator.max_repo_mb)
+    if not size.ok:
+        failures.append(("repo_size", size))
 
     config = check_config(d)
     if not config.ok:

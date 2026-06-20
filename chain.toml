@@ -20,6 +20,9 @@ max_length           = 2048
 max_total_points     = 2_000_000_000 # raised off 64M; real corpus size is set by corpus_n_series + memory/streaming (see notes)
 max_generate_seconds = 1800      # wall-clock budget for draining the generator
 max_memory_mb        = 4096      # rlimit for the generation sandbox
+max_repo_mb          = 2048      # cap on the fetched submission (code + safetensors
+                                 # weights). A generator may BE a model up to this size;
+                                 # max_memory_mb / max_generate_seconds bound it at runtime.
 max_channels         = 1         # per-series variates. 1 = univariate (generators may
                                  # yield 1-D, promoted to (1, L)); raise to enable
                                  # multivariate priors without a schema change.
@@ -108,15 +111,20 @@ dethrone_cp          = 3         # consecutive round wins required to take the t
 
 [dependencies]
 # Allowlist for a generator's requirements.txt — supply-chain restriction.
-# Generators are pure data code; the list is deliberately tighter than a
-# model subnet's (no torch needed to emit synthetic series).
-max_packages = 8
+# A generator may BE a trained model (e.g. a PFN / ensemble) behind the
+# generate() endpoint, so torch + safetensors are allowed. Weights ship as
+# safetensors only — pickle checkpoints (.pt/.bin/.pth/.ckpt) are rejected by
+# the repo-layout check (loading them executes arbitrary code). Still
+# hash-locked and capped at max_packages.
+max_packages = 10
 allowed = [
     "numpy",
     "scipy",
     "pandas",
     "statsmodels",
     "numba",
+    "torch",
+    "safetensors",
 ]
 
 [static_guard]

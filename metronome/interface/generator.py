@@ -20,8 +20,12 @@ auditability and is rejected by the determinism check in
 
 The on-chain submission is a single pointer string
 ``metro-v1:gen:hf:<repo>@<sha>``; the git SHA pins the full HF tree — generator
-code, ``config.json``, and ``requirements.txt`` — together. No model weights
-are part of a generator submission (the trainer produces the weights).
+code, ``config.json``, ``requirements.txt``, and any model weights — together.
+A generator MAY itself be a trained model (e.g. a PFN or an ensemble) behind the
+``generate`` endpoint: ship weights as ``safetensors`` only (pickle checkpoints
+are rejected), within the ``max_repo_mb`` size cap. Determinism still applies —
+seed every framework RNG (NumPy and, if used, ``torch.manual_seed`` +
+``torch.use_deterministic_algorithms(True)``) so the corpus stays reproducible.
 """
 
 from __future__ import annotations

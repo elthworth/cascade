@@ -1,10 +1,11 @@
 # metronome submission interface (for miners)
 
-You submit a **data generator**, not a model. Your generator produces synthetic
-time-series that the subnet owner's trainer uses to train a **Toto2-4M forecaster
-from scratch** (random init — not a fine-tune). You win when your data trains a
-better forecaster than the king's data, scored on a private, rotating held-out
-set you never see.
+You submit a **data generator** — *any* process behind the `generate()` endpoint:
+an algorithm, a neural sampler (a PFN or ensemble), or a hybrid, and it may ship
+its own weights. Whatever it is, it produces synthetic time-series that the subnet
+owner's trainer uses to train a **Toto2-4M forecaster from scratch** (random init
+— not a fine-tune). You win when your data trains a better forecaster than the
+king's data, scored on a private, rotating held-out set you never see.
 
 Series are univariate today (`max_channels = 1`), but the corpus carries a
 channel axis: `generate` may yield a 1-D `(L,)` array (treated as one channel) and
@@ -13,7 +14,7 @@ cap — no interface change for you when that happens.
 
 ## Repo layout
 
-Your HuggingFace repo must contain exactly:
+Your HuggingFace repo must contain at least:
 
 ```
 generator.py        # exposes `class Generator(DataGenerator)`
@@ -21,8 +22,10 @@ config.json         # any JSON object; your generator may read it
 requirements.txt    # hash-locked, allowlisted, <= max_packages
 ```
 
-**No weight files.** `*.safetensors`, `*.bin`, `*.pt`, `*.pth`, `*.ckpt` are
-rejected — the trainer produces weights, not you.
+**Weights are allowed — as `safetensors` only.** If your generator is a model,
+ship its weights as `*.safetensors`. Pickle checkpoints (`*.bin`, `*.pt`,
+`*.pth`, `*.ckpt`) are rejected because loading them runs arbitrary code. The
+whole repo (code + weights) must be `<= max_repo_mb`.
 
 ## The contract
 
@@ -51,10 +54,11 @@ class Generator(DataGenerator):
 ### Hard requirements
 
 * **Determinism.** Two runs at the same `seed` must produce a byte-identical
-  corpus. No wall-clock, no `os.urandom`, no un-seeded global RNG. `metronome
-  verify` runs your generator twice and rejects it if the digests differ — this
-  is non-negotiable, because the trainer and validators rely on it to audit
-  runs.
+  corpus. No wall-clock, no `os.urandom`, no un-seeded global RNG. If your
+  generator uses torch, seed it too (`torch.manual_seed(seed)` +
+  `torch.use_deterministic_algorithms(True)`, on CPU). `metronome verify` runs
+  your generator twice and rejects it if the digests differ — non-negotiable,
+  because the trainer and validators rely on it to audit runs.
 * **Bounds.** Each series is finite (no NaN/inf), 1-D, floating dtype, with
   length in `[generator.min_length, generator.max_length]`. The whole corpus is
   capped at `generator.max_total_points`.
@@ -62,8 +66,10 @@ class Generator(DataGenerator):
 * **No network / no escape.** `generator.py` is AST-scanned for blocked imports
   (sockets, subprocess, the metronome internals, etc.) and run in a
   network-isolated sandbox. See `chain.toml [static_guard]`.
-* **Dependencies.** `requirements.txt` lines must be `pkg==ver --hash=sha256:…`,
-  drawn from `chain.toml [dependencies] allowed`, at most `max_packages`.
+* **Dependencies & size.** `requirements.txt` lines must be
+  `pkg==ver --hash=sha256:…`, drawn from `chain.toml [dependencies] allowed`
+  (which includes `torch` + `safetensors` for model generators), at most
+  `max_packages`. The fetched repo (code + weights) must be `<= max_repo_mb`.
 
 ## Deploy
 

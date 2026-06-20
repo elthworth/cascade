@@ -1,9 +1,10 @@
 """Schema + runtime checks for a submitted generator repo.
 
 Used by the miner CLI (``metronome verify``) and by the trainer before it
-imports and runs a generator in the sandbox. Unlike horizon, a metronome
-submission carries NO model weights — it is pure generator code plus a pinned
-dependency set.
+imports and runs a generator in the sandbox. A submission MAY carry model
+weights (the generator can be a trained model behind ``generate()``), but only
+as **safetensors** — pickle-based checkpoints are rejected because loading them
+executes arbitrary code. The whole submission is size-capped (``max_repo_mb``).
 """
 
 from __future__ import annotations
@@ -13,17 +14,18 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-# A generator HF repo must contain exactly these files (weights are forbidden —
-# the trainer produces weights, not the miner).
+# A generator HF repo must contain at least these files; it MAY additionally
+# ship safetensors weights (the generator can be a trained model).
 REQUIRED_FILES: tuple[str, ...] = (
     "config.json",
     "generator.py",
     "requirements.txt",
 )
 
-# Weight-file globs that must NOT appear in a generator repo. Their presence is
-# a strong signal the miner confused metronome (data) with horizon (models).
-FORBIDDEN_WEIGHT_GLOBS: tuple[str, ...] = ("*.safetensors", "*.bin", "*.pt", "*.pth", "*.ckpt")
+# Pickle-based weight globs that must NOT appear: loading them (torch.load et al.)
+# unpickles — i.e. runs arbitrary code from untrusted miner data. Ship weights as
+# ``*.safetensors`` instead, a safe code-free tensor container.
+FORBIDDEN_PICKLE_GLOBS: tuple[str, ...] = ("*.bin", "*.pt", "*.pth", "*.ckpt")
 
 # requirements.txt line: ``pkg==1.2.3 --hash=sha256:abc...`` (one or more hash flags).
 _REQ_LINE = re.compile(
@@ -55,16 +57,39 @@ class ValidationResult:
 
 
 def check_repo_layout(repo_dir: Path | str) -> ValidationResult:
-    """Required files present and no stray weight files."""
+    """Required files present and no pickle-based weight files.
+
+    safetensors weights are allowed (a generator may be a trained model); only
+    pickle checkpoints are rejected. The size cap is :func:`check_repo_size`.
+    """
     d = Path(repo_dir)
     if not d.is_dir():
         return ValidationResult.fail("not_a_directory", path=str(d))
     missing = [name for name in REQUIRED_FILES if not (d / name).is_file()]
     if missing:
         return ValidationResult.fail("missing_files", missing=missing)
-    weights = [p.name for g in FORBIDDEN_WEIGHT_GLOBS for p in d.glob(g)]
-    if weights:
-        return ValidationResult.fail("weight_files_forbidden", files=sorted(weights))
+    pickled = sorted({p.name for g in FORBIDDEN_PICKLE_GLOBS for p in d.rglob(g)})
+    if pickled:
+        return ValidationResult.fail("pickle_weights_forbidden", files=pickled)
+    return ValidationResult.pass_()
+
+
+def check_repo_size(repo_dir: Path | str, max_repo_mb: int) -> ValidationResult:
+    """Total size of the fetched submission must be ``<= max_repo_mb``.
+
+    Counts every file in the tree (code + config + any safetensors weights), so a
+    generator that ships a model is bounded — it keeps download/storage/audit
+    cost sane and caps how large a model a miner can submit as a "generator".
+    """
+    d = Path(repo_dir)
+    if not d.is_dir():
+        return ValidationResult.fail("not_a_directory", path=str(d))
+    total = sum(p.stat().st_size for p in d.rglob("*") if p.is_file())
+    cap = int(max_repo_mb) * 1024 * 1024
+    if total > cap:
+        return ValidationResult.fail(
+            "repo_too_large", total_bytes=total, max_bytes=cap, max_repo_mb=int(max_repo_mb)
+        )
     return ValidationResult.pass_()
 
 

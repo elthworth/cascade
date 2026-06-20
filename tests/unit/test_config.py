@@ -68,9 +68,12 @@ def test_static_guard_blocks_internal_modules(cfg):
     assert "socket" in blocked
 
 
-def test_generator_allowlist_excludes_torch(cfg):
-    # Generators emit data; they must not need torch.
-    assert "torch" not in {a.lower() for a in cfg.dependencies.allowed}
+def test_generator_allowlist_includes_torch_for_model_generators(cfg):
+    # A generator may itself be a trained model behind generate(), so torch and
+    # safetensors are allowlisted (weights ship as safetensors only).
+    allowed = {a.lower() for a in cfg.dependencies.allowed}
+    assert "torch" in allowed
+    assert "safetensors" in allowed
 
 
 def test_corpus_mode_is_a_known_mode(cfg):

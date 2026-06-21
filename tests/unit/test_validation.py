@@ -6,6 +6,7 @@ import pytest
 
 from metronome.interface.validation import (
     check_repo_layout,
+    check_repo_size,
     check_requirements_hash_locked,
     format_commit,
     parse_commit,
@@ -68,14 +69,34 @@ def test_repo_layout_accepts_generator_repo(tmp_path):
     assert check_repo_layout(tmp_path).ok
 
 
-def test_repo_layout_rejects_weight_files(tmp_path):
+def test_repo_layout_accepts_safetensors_weights(tmp_path):
+    # A generator may BE a model: safetensors weights are allowed.
     _write(tmp_path, "config.json", "{}")
     _write(tmp_path, "generator.py", "x = 1\n")
     _write(tmp_path, "requirements.txt", "")
     _write(tmp_path, "model.safetensors", "binary")
+    assert check_repo_layout(tmp_path).ok
+
+
+def test_repo_layout_rejects_pickle_weights(tmp_path):
+    # Pickle checkpoints execute code on load — rejected (ship safetensors).
+    _write(tmp_path, "config.json", "{}")
+    _write(tmp_path, "generator.py", "x = 1\n")
+    _write(tmp_path, "requirements.txt", "")
+    _write(tmp_path, "model.pt", "binary")
     r = check_repo_layout(tmp_path)
     assert not r.ok
-    assert r.reason == "weight_files_forbidden"
+    assert r.reason == "pickle_weights_forbidden"
+
+
+def test_check_repo_size_caps_total_bytes(tmp_path):
+    _write(tmp_path, "config.json", "{}")
+    _write(tmp_path, "generator.py", "x = 1\n")
+    _write(tmp_path, "weights.safetensors", "z" * 4096)
+    assert check_repo_size(tmp_path, max_repo_mb=1).ok       # ~4 KB <= 1 MB
+    over = check_repo_size(tmp_path, max_repo_mb=0)          # 0-byte cap
+    assert not over.ok
+    assert over.reason == "repo_too_large"
 
 
 def test_repo_layout_rejects_missing_files(tmp_path):

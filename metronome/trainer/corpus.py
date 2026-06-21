@@ -5,12 +5,11 @@ it with the round's generation seed, and drain exactly ``corpus_n_series``
 validated series. The result is a list of float64 arrays plus its digest — the
 auditable record of what the model was trained on.
 
-Isolation boundary: the generator is miner-controlled code. The static guard
-(:mod:`metronome.interface.static_guard`) is the cheap pre-check; running the
-generator MUST happen inside a network-isolated, rlimited sandbox subprocess in
-production. :func:`build_corpus` here runs in-process for tests and offline
-smoke; ``run_in_sandbox`` is the TODO boundary that wraps it for live use (see
-OPEN_QUESTIONS.md #2).
+Isolation boundary: the generator is miner-controlled code. :func:`build_corpus`
+runs it IN-PROCESS — fine for tests, ``metronome verify``, and trusted offline
+smoke. In production the trainer runs this same path inside the network-isolated,
+rlimited subprocess in :mod:`metronome.trainer.sandbox` (:func:`build_round_corpus`
+with ``use_sandbox=True``, the default).
 """
 
 from __future__ import annotations
@@ -23,6 +22,7 @@ from pathlib import Path
 import numpy as np
 
 from ..interface.generator import DataGenerator, drain_generator
+from ..interface.validation import check_repo_size
 from ..shared.config import GeneratorConfig
 from ..shared.manifest import corpus_digest
 
@@ -76,6 +76,9 @@ def build_corpus(
     offending generator simply fails to qualify this round (a bad generator can
     never affect the king's run).
     """
+    size = check_repo_size(repo_dir, cfg.max_repo_mb)
+    if not size.ok:
+        raise CorpusError(f"submission_too_large: {size.details}")
     gen = _load_generator(Path(repo_dir), generation_seed)
     try:
         series = drain_generator(
@@ -97,6 +100,55 @@ def build_corpus(
     )
 
 
+# Feed modes that stream fresh data with no reuse (vs. cache_reuse, which draws a
+# fixed corpus once and lets the trainer pass over it multiple times).
+STREAMING_MODES = ("stream_cpu", "stream_gpu")
+
+
+def build_round_corpus(
+    repo_dir: Path | str,
+    generation_seed: int,
+    cfg: GeneratorConfig,
+    mode: str,
+    *,
+    use_sandbox: bool = True,
+    blocked: tuple[str, ...] = (),
+    allow_netns: bool = True,
+) -> CorpusResult:
+    """Build a round's corpus according to the selected feed ``mode``.
+
+    * ``cache_reuse`` — draw a fixed corpus once (materialised) and let the base
+      trainer make multiple passes over it under the token budget. Byte-exact
+      auditable; reuses data. This is the path :func:`build_corpus` implements.
+    * ``stream_cpu`` / ``stream_gpu`` — streaming feed modes, handled by
+      :func:`metronome.trainer.stream.open_round_stream`, not here.
+      ``build_round_corpus`` is the *materialised* helper (cache_reuse only) and
+      rejects stream modes so a miswired caller fails loudly rather than silently
+      falling back to reuse.
+
+    ``use_sandbox`` (default True) runs the generator in the network-isolated,
+    rlimited subprocess from :mod:`metronome.trainer.sandbox`; ``blocked`` is the
+    static-guard import blocklist enforced before the generator is imported. Pass
+    ``use_sandbox=False`` only for trusted offline / in-process test runs.
+
+    Raises :class:`CorpusError` for an unwired or unknown mode.
+    """
+    if mode == "cache_reuse":
+        if use_sandbox:
+            from .sandbox import run_in_sandbox
+
+            return run_in_sandbox(
+                repo_dir, generation_seed, cfg, blocked=tuple(blocked), allow_netns=allow_netns
+            )
+        return build_corpus(repo_dir, generation_seed, cfg)
+    if mode in STREAMING_MODES:
+        raise CorpusError(
+            f"corpus_mode={mode!r} streams via stream.open_round_stream, not "
+            "build_round_corpus (the materialised cache_reuse-only helper)."
+        )
+    raise CorpusError(f"unknown corpus_mode={mode!r}")
+
+
 def assert_corpus_reproducible(
     repo_dir: Path | str,
     generation_seed: int,
@@ -116,18 +168,3 @@ def assert_corpus_reproducible(
             "different corpora (digests differ)"
         )
     return first.digest
-
-
-def run_in_sandbox(
-    repo_dir: Path | str,
-    generation_seed: int,
-    cfg: GeneratorConfig,
-) -> CorpusResult:
-    """TODO: spawn a network-isolated, rlimited subprocess that calls
-    :func:`build_corpus` and returns the corpus over a pipe.
-
-    Until the sandbox lands this delegates to the in-process path, which is
-    acceptable for trusted offline runs but NOT for adversarial mainnet use.
-    Mirrors horizon's ``validator/scorer/sandbox.py`` design.
-    """
-    return build_corpus(repo_dir, generation_seed, cfg)

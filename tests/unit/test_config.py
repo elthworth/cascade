@@ -68,6 +68,36 @@ def test_static_guard_blocks_internal_modules(cfg):
     assert "socket" in blocked
 
 
-def test_generator_allowlist_excludes_torch(cfg):
-    # Generators emit data; they must not need torch.
-    assert "torch" not in {a.lower() for a in cfg.dependencies.allowed}
+def test_generator_allowlist_includes_torch_for_model_generators(cfg):
+    # A generator may itself be a trained model behind generate(), so torch and
+    # safetensors are allowlisted (weights ship as safetensors only).
+    allowed = {a.lower() for a in cfg.dependencies.allowed}
+    assert "torch" in allowed
+    assert "safetensors" in allowed
+
+
+def test_corpus_mode_is_a_known_mode(cfg):
+    from metronome.shared.config import CORPUS_MODES
+
+    assert cfg.training.corpus_mode in CORPUS_MODES
+
+
+def test_corpus_mode_folded_into_contract_digest(cfg):
+    # The feed mode is part of the controlled contract — king and challenger must
+    # use the same one — so changing it must change the digest.
+    from dataclasses import replace
+
+    from metronome.shared.manifest import contract_digest
+
+    base = contract_digest(cfg.training)
+    alt = "cache_reuse" if cfg.training.corpus_mode != "cache_reuse" else "stream_cpu"
+    assert base != contract_digest(replace(cfg.training, corpus_mode=alt))
+
+
+def test_validate_corpus_mode_rejects_unknown():
+    import pytest
+
+    from metronome.shared.config import validate_corpus_mode
+
+    with pytest.raises(ValueError):
+        validate_corpus_mode("turbo")

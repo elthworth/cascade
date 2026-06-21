@@ -1,7 +1,8 @@
 """metronome — a Bittensor subnet for synthetic time-series training data.
 
 King-of-the-hill on *data*, not models. Miners submit synthetic time-series
-**data generators** (code, no weights). The subnet owner runs a deterministic
+**data generators** (code, optionally with safetensors weights — the generator
+may itself be a trained model). The subnet owner runs a deterministic
 **trainer** that trains a fresh copy of the owner-supplied base TSFM on the
 reigning king's generator output and on a challenger's generator output under
 an *identical* training contract — same architecture, seed, epochs, budget —

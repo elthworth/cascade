@@ -33,7 +33,7 @@ from ..shared.manifest import (
     format_trained_pointer,
 )
 from .contract import BaseTrainer, RoundSeeds
-from .corpus import build_corpus
+from .stream import open_round_stream
 
 log = logging.getLogger("metronome.trainer")
 
@@ -102,6 +102,7 @@ class TrainerRunner:
     trained_repo_prefix: str           # e.g. "tensorlink-ai/metro-trained"
     hf_token: str | None = None
     hf_cache_dir: Path | None = None
+    use_sandbox: bool = True           # run generators in the isolated subprocess
 
     def train_one(
         self,
@@ -121,20 +122,28 @@ class TrainerRunner:
         fetched = fetch_revision(
             gen.repo, gen.revision, cache_dir=self.hf_cache_dir, token=self.hf_token
         )
-        corpus = build_corpus(fetched.local_dir, seeds.generation_seed, self.cfg.generator)
-        log.info(
-            "round=%s role=%s hotkey=%s corpus n=%d points=%d digest=%s",
-            seeds.base_seed, role, gen.hotkey, corpus.n_series, corpus.total_points,
-            corpus.digest[:12],
-        )
-
         out_dir = self.work_root / f"{seeds.base_seed}" / role
         out_dir.mkdir(parents=True, exist_ok=True)
-        result = self.base_trainer.train(
-            corpus.series,
-            self.cfg.training,
-            training_seed=seeds.training_seed,
-            out_dir=out_dir,
+        token_budget = self.cfg.training.train_tokens
+        with open_round_stream(
+            self.cfg.training.corpus_mode,
+            fetched.local_dir, seeds.generation_seed, self.cfg.generator,
+            token_budget=token_budget,
+            use_sandbox=self.use_sandbox,
+            blocked=self.cfg.static_guard.blocked,
+        ) as rs:
+            result = self.base_trainer.train(
+                rs.series(),
+                self.cfg.training,
+                training_seed=seeds.training_seed,
+                token_budget=token_budget,
+                out_dir=out_dir,
+            )
+            corpus_digest, n_series, total_points = rs.digest, rs.n_series, rs.total_points
+        log.info(
+            "round=%s role=%s hotkey=%s mode=%s n=%d points=%d digest=%s",
+            seeds.base_seed, role, gen.hotkey, self.cfg.training.corpus_mode,
+            n_series, total_points, corpus_digest[:12],
         )
         repo = f"{self.trained_repo_prefix}-{role}-{seeds.base_seed}"
         commit_sha = upload_folder(
@@ -148,7 +157,7 @@ class TrainerRunner:
             gen_repo=gen.repo,
             gen_revision=gen.revision,
             trained_pointer=format_trained_pointer(repo, commit_sha),
-            corpus_digest=corpus.digest,
+            corpus_digest=corpus_digest,
             train_block=block,
         )
 

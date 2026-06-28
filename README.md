@@ -42,7 +42,7 @@ flowchart TD
         gate["verify signature +<br/>matching contract / base-arch digests<br/>(controlled-experiment gate)"]
         eval["pull both ckpts → score on<br/>shared held-out windows<br/>(CRPS/MWSQL + MASE)"]
         koth["paired-bootstrap LCB of<br/>geomean(CRPS, MASE),<br/>challenger vs king → KOTH verdict"]
-        weights["winner-take-all<br/>weights on king's UID"]
+        weights["equal-share weights<br/>(king + recent kings)"]
         gate --> eval --> koth --> weights
     end
 
@@ -70,9 +70,15 @@ throughput`) so king and challenger get **identical compute**. A raw timer would
 let a generator win by emitting cheap-to-step data rather than better data, and
 wouldn't reproduce on a re-derived audit run.
 
-A challenger only takes the throne after winning **`dethrone_cp` consecutive
-rounds** by a confidence-bounded margin (paired bootstrap LCB clears the
-tenure-adjusted win margin). Weights are pure winner-takes-all.
+A challenger takes the throne by winning **`dethrone_cp` round(s)** by a
+confidence-bounded margin (paired bootstrap LCB clears the win margin). The
+shipped `chain.toml` sets `dethrone_cp = 1` with a flat, no-tenure margin
+(`win_margin_start == win_margin_end`, `margin_warmup_rounds = 0`), so a single
+decisive round dethrones and every king is equally challengeable; raise
+`dethrone_cp` and re-enable the warmup for the sticky, tenure-weighted variant.
+Weights are split equally across the current king plus up to `reward_prior_kings`
+recent distinct kings still registered (burning to `burn_uid` if none are), with
+`reward_prior_kings = 0` collapsing to pure winner-take-all.
 
 ## Why Toto2-4M
 

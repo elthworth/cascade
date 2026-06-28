@@ -188,6 +188,12 @@ class ScoringConfig:
     bootstrap_B: int
     bootstrap_alpha: float
     dethrone_cp: int
+    # Reward routing: equal weight is split across the current king plus up to
+    # ``reward_prior_kings`` previous distinct kings still registered; with none
+    # registered, all weight burns to ``burn_uid``. ``reward_prior_kings = 0``
+    # reproduces pure winner-take-all. Defaults keep older chain.toml loadable.
+    reward_prior_kings: int = 0
+    burn_uid: int = 0
 
 
 @dataclass(frozen=True)
@@ -408,6 +414,8 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             bootstrap_B=int(s["bootstrap_B"]),
             bootstrap_alpha=float(s["bootstrap_alpha"]),
             dethrone_cp=int(s["dethrone_cp"]),
+            reward_prior_kings=int(s.get("reward_prior_kings", 0)),
+            burn_uid=int(s.get("burn_uid", 0)),
         ),
         dependencies=DependencyConfig(
             max_packages=int(d["max_packages"]),

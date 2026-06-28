@@ -68,3 +68,54 @@ def test_state_round_trips_through_json():
     st = apply_round(st, challenger_hotkey="c", challenger_uid=2, result=_win(), dethrone_cp=3).state
     again = loads(dumps(st))
     assert again == st
+
+
+def test_single_round_dethrone_when_cp_is_one():
+    # dethrone_cp = 1 ⇒ one winning round takes the throne (teutonic-style).
+    st = genesis("king", 0)
+    t = apply_round(st, challenger_hotkey="chal", challenger_uid=1, result=_win(), dethrone_cp=1)
+    assert t.dethroned
+    assert t.state.king_hotkey == "chal"
+    assert t.state.king_uid == 1
+
+
+def test_former_kings_tracked_and_capped():
+    # Walk the throne through a sequence of single-round dethrones and check the
+    # rewarded court is most-recent-first and capped at keep_former_kings.
+    st = genesis("k0", 0)
+    order = [("k1", 1), ("k2", 2), ("k3", 3), ("k4", 4)]
+    for hk, uid in order:
+        st = apply_round(
+            st, challenger_hotkey=hk, challenger_uid=uid, result=_win(),
+            dethrone_cp=1, keep_former_kings=2,
+        ).state
+    assert st.king_hotkey == "k4"
+    # Only the 2 most-recent former kings are kept, newest first.
+    assert st.former_kings == ("k3", "k2")
+
+
+def test_former_kings_empty_when_winner_take_all():
+    # keep_former_kings = 0 (default) ⇒ no court is retained (winner-take-all).
+    st = genesis("king", 0)
+    t = apply_round(st, challenger_hotkey="chal", challenger_uid=1, result=_win(), dethrone_cp=1)
+    assert t.state.former_kings == ()
+
+
+def test_former_kings_dedupe_when_a_king_returns():
+    # A returning champion must not appear twice in the court.
+    st = genesis("a", 0)
+    st = apply_round(st, challenger_hotkey="b", challenger_uid=1, result=_win(),
+                     dethrone_cp=1, keep_former_kings=4).state  # court: (a,)
+    st = apply_round(st, challenger_hotkey="a", challenger_uid=0, result=_win(),
+                     dethrone_cp=1, keep_former_kings=4).state  # a back on throne; court: (b,)
+    assert st.king_hotkey == "a"
+    assert st.former_kings == ("b",)
+
+
+def test_former_kings_survive_json_round_trip():
+    st = genesis("k0", 0)
+    st = apply_round(st, challenger_hotkey="k1", challenger_uid=1, result=_win(),
+                     dethrone_cp=1, keep_former_kings=4).state
+    again = loads(dumps(st))
+    assert again == st
+    assert again.former_kings == ("k0",)

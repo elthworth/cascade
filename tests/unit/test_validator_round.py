@@ -148,10 +148,11 @@ def test_reward_uids_include_registered_former_kings(cfg):
     assert uids == [0, 5]
 
 
-def test_reward_uids_none_when_no_king(cfg):
+def test_reward_uids_empty_when_no_king(cfg):
     import types
 
-    # No manifest king and an empty throne ⇒ nothing to vote (loop skips, no burn).
+    # No manifest king and an empty throne ⇒ empty reward set; the loop then
+    # burns to burn_uid (teutonic-style) rather than skipping the weight-set.
     runner = ValidatorRunner(cfg=cfg, evaluate_fn=lambda e, w: [], verify_signatures=False)
     empty = TrainingManifest(
         round_id="1", created_block=10,
@@ -160,7 +161,7 @@ def test_reward_uids_none_when_no_king(cfg):
         eval_dataset=cfg.eval.eval_dataset, entries=[],
     )
     client = types.SimpleNamespace(uid_for_hotkey=lambda hk: None)
-    assert runner._reward_uids(empty, None, client) is None
+    assert runner._reward_uids(empty, None, client) == []
 
 
 def test_vote_prefers_manifest_king_without_dethrone(cfg):

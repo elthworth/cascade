@@ -213,15 +213,17 @@ class ValidatorRunner:
                         last_round = manifest.round_id
                         self._persist_state()
                         reward_uids = self._reward_uids(manifest, outcome, client)
-                        if reward_uids is not None:
-                            try:
-                                client.set_equal_share_weights(
-                                    reward_uids, client.n_uids(),
-                                    burn_uid=self.cfg.scoring.burn_uid,
-                                )
-                            except Exception as e:  # noqa: BLE001 — retried next round
-                                log.warning("weight set failed for round=%s (king holds, "
-                                            "retried next round): %s", manifest.round_id, e)
+                        try:
+                            # Always set weights — when no king/court is registered
+                            # the empty set burns to burn_uid (teutonic-style) so
+                            # emission still leaves the network rather than reverting.
+                            client.set_equal_share_weights(
+                                reward_uids, client.n_uids(),
+                                burn_uid=self.cfg.scoring.burn_uid,
+                            )
+                        except Exception as e:  # noqa: BLE001 — retried next round
+                            log.warning("weight set failed for round=%s (king holds, "
+                                        "retried next round): %s", manifest.round_id, e)
             except Exception as e:  # noqa: BLE001 — a service loop must not die on one round
                 log.exception("round processing failed; retrying after poll: %s", e)
             time.sleep(poll)
@@ -242,14 +244,14 @@ class ValidatorRunner:
 
     def _reward_uids(
         self, manifest: TrainingManifest, outcome: RoundOutcome | None, client: object
-    ) -> list[int] | None:
+    ) -> list[int]:
         """UIDs that share this round's weight: the current king plus any
         ``former_kings`` still registered (teutonic-style equal-share payout).
 
-        Returns None when there is no king to vote for at all (no manifest king
-        and no recorded throne) — the loop then skips the weight-set rather than
-        burning. Otherwise the list is handed to ``set_equal_share_weights``,
-        which dedupes, drops deregistered UIDs, and burns if the set is empty.
+        Returns an empty list when there is no king to vote for at all (no
+        manifest king and no recorded throne); the loop hands that to
+        ``set_equal_share_weights``, which burns to ``burn_uid`` rather than
+        reverting. The list is otherwise deduped/range-checked there too.
         """
         uids: list[int] = []
         king_uid = self._king_uid_to_vote(manifest, outcome)
@@ -259,8 +261,6 @@ class ValidatorRunner:
             uid = client.uid_for_hotkey(hk)  # type: ignore[attr-defined]
             if uid is not None:
                 uids.append(uid)
-        if not uids:
-            return None
         return uids
 
     def _persist_state(self) -> None:  # pragma: no cover

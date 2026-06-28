@@ -104,8 +104,10 @@ expected_gpu = ""
 eval_dataset   = "metronome-private-v1"  # identifier the validator matches on
 eval_source    = "private-rotating"      # rotating private pool (vs a fixed public set)
 window_pool    = ""                       # Hippius registry CID of the held-out pool (.npy/.npz
-                                          # series + optional metadata.json). Upload with
-                                          # upload_dir_to_registry and pin the CID here before launch.
+                                          # series + optional metadata.json). Build, upload, and get
+                                          # the CID to pin here with:
+                                          #   metronome-pool build --out ./pool --upload
+                                          # (see docs/EVAL_POOL.md and metronome.pool).
 num_samples    = 100             # sample forecasts drawn per window
 n_windows      = 2000            # eval windows drawn per round from the pool
 context_length = 4096            # must match [training]; pool must supply >=4096+horizon windows

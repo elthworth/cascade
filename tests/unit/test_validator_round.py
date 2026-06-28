@@ -7,6 +7,7 @@ pairing logic.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from metronome.eval.scoring import WindowScore
 from metronome.shared.chain import Commitment
@@ -97,6 +98,21 @@ def test_dethrone_after_consecutive_wins(cfg):
         dethroned = outcome.transition.dethroned
     assert dethroned
     assert runner.state.king_hotkey == "chal_hk"
+
+
+def test_process_round_is_atomic_on_eval_failure(cfg):
+    # The live loop marks a round consumed only after process_round returns, which
+    # is safe only because a transient eval/fetch error leaves champion state
+    # UNCHANGED (so the retry can't double-count the streak/tenure).
+    def boom(entry, windows):
+        raise RuntimeError("registry fetch failed")
+
+    runner = ValidatorRunner(cfg=cfg, state=genesis("king_hk", 0), evaluate_fn=boom,
+                             verify_signatures=False)
+    before = runner.state
+    with pytest.raises(RuntimeError):
+        runner.process_round(_manifest(cfg), windows=[], base_seed=1)
+    assert runner.state is before  # no mutation ⇒ clean retry
 
 
 def test_vote_prefers_manifest_king_without_dethrone(cfg):

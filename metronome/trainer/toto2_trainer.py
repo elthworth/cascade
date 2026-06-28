@@ -355,6 +355,7 @@ forecasts by sampling the model's predicted quantiles autoregressively."""
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -383,12 +384,14 @@ class Wrapper:
         state = load_file(str(d / "weights.safetensors"))
         self.model.load_state_dict(state)
 
-    def _quantiles_to_samples(self, q_vals: torch.Tensor, num_samples: int) -> torch.Tensor:
+    def _quantiles_to_samples(self, q_vals, num_samples, generator):
         # q_vals: (num_samples, patch_size, num_q) — sample one value per step via
-        # the piecewise-linear inverse CDF of the predicted quantiles.
+        # the piecewise-linear inverse CDF of the predicted quantiles. ``generator``
+        # is seeded per window so every validator draws identical samples (consensus)
+        # and king/challenger share uniforms (paired Monte-Carlo, lower variance).
         ns, ps, nq = q_vals.shape
         q_vals, _ = torch.sort(q_vals, dim=-1)  # enforce monotone quantiles
-        u = torch.rand(ns, ps, device=q_vals.device)
+        u = torch.rand(ns, ps, device=q_vals.device, generator=generator)
         levels = self.levels
         idx = torch.searchsorted(levels, u.clamp(levels[0].item(), levels[-1].item()))
         idx = idx.clamp(1, nq - 1)
@@ -403,6 +406,13 @@ class Wrapper:
     @torch.no_grad()
     def forecast(self, history, horizon: int, num_samples: int) -> np.ndarray:
         hist = np.asarray(history, dtype=np.float64).reshape(-1)
+        # Deterministic per-window sampling: seed from the (raw history, horizon,
+        # num_samples) so every validator computes identical scores and king vs
+        # challenger share the uniform draws (paired Monte-Carlo).
+        seed_src = hist.tobytes() + int(horizon).to_bytes(8, "big") + int(num_samples).to_bytes(8, "big")
+        seed = int.from_bytes(hashlib.sha256(seed_src).digest()[:8], "big") & ((1 << 63) - 1)
+        generator = torch.Generator(device=self.device)
+        generator.manual_seed(seed)
         ps = self.cfg.patch_size
         n_ctx = max(2, self.cfg.context_length // ps)
         window_len = n_ctx * ps
@@ -424,7 +434,7 @@ class Wrapper:
             patches = ctx.view(num_samples, n_ctx, ps)
             pred = self.model(patches)            # (ns, P, ps, num_q)
             next_q = pred[:, -1]                  # (ns, ps, num_q) — next patch
-            nxt = self._quantiles_to_samples(next_q, num_samples)  # (ns, ps)
+            nxt = self._quantiles_to_samples(next_q, num_samples, generator)  # (ns, ps)
             z = torch.cat([z, nxt], dim=1)
             generated.append(nxt)
         gen = torch.cat(generated, dim=1)[:, :horizon]  # (ns, horizon)

@@ -200,12 +200,21 @@ class ValidatorRunner:
                         last_round = manifest.round_id
                     else:
                         windows = window_source.windows_for_round(base_seed, self.cfg.eval.n_windows)
+                        # process_round mutates the sticky KOTH state atomically (it
+                        # raises before any mutation on a transient eval/fetch error,
+                        # leaving state untouched for a clean retry). Mark the round
+                        # consumed as soon as it returns, so a later weight-set failure
+                        # can NEVER re-run it and double-count the streak/tenure.
                         outcome = self.process_round(manifest, windows, base_seed)
+                        last_round = manifest.round_id
+                        self._persist_state()
                         vote_uid = self._king_uid_to_vote(manifest, outcome)
                         if vote_uid is not None:
-                            client.set_winner_take_all_weights(vote_uid, client.n_uids())
-                        self._persist_state()
-                        last_round = manifest.round_id
+                            try:
+                                client.set_winner_take_all_weights(vote_uid, client.n_uids())
+                            except Exception as e:  # noqa: BLE001 — retried next round
+                                log.warning("weight set failed for round=%s (king holds, "
+                                            "retried next round): %s", manifest.round_id, e)
             except Exception as e:  # noqa: BLE001 — a service loop must not die on one round
                 log.exception("round processing failed; retrying after poll: %s", e)
             time.sleep(poll)

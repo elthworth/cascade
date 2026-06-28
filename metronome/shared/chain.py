@@ -8,6 +8,9 @@ Wraps the minimal subtensor surface metronome needs:
   with the generator pointer string.
 * :meth:`ChainClient.set_winner_take_all_weights` — push the KOTH weight vector
   (1.0 on the champion, 0.0 elsewhere).
+* :meth:`ChainClient.set_equal_share_weights` — split weight equally across the
+  current king plus registered prior kings (teutonic-style payout), burning to
+  ``burn_uid`` when none are registered.
 * :meth:`ChainClient.current_block`.
 
 This module is the single gating point for ``import bittensor`` so the rest of
@@ -26,6 +29,28 @@ from .config import ChainConfig
 
 class ChainError(RuntimeError):
     """Wraps any bittensor exception so callers don't import bittensor."""
+
+
+def equal_share_vector(
+    reward_uids: list[int], n_uids: int, *, burn_uid: int = 0
+) -> list[float]:
+    """Build a length-``n_uids`` weight vector that splits 1.0 equally across the
+    distinct, in-range ``reward_uids``. With no valid reward UID, all weight goes
+    to ``burn_uid``. Pure (no chain I/O) so the routing math is unit-testable.
+    """
+    if n_uids <= 0:
+        raise ChainError(f"n_uids must be positive, got {n_uids}")
+    uniq = sorted({u for u in reward_uids if 0 <= u < n_uids})
+    weights = [0.0] * n_uids
+    if uniq:
+        share = 1.0 / len(uniq)
+        for u in uniq:
+            weights[u] = share
+    else:
+        if not (0 <= burn_uid < n_uids):
+            raise ChainError(f"burn_uid {burn_uid} out of range [0,{n_uids})")
+        weights[burn_uid] = 1.0
+    return weights
 
 
 def _import_bittensor():
@@ -217,11 +242,25 @@ class ChainClient:
         """Push a weight vector with 1.0 on ``champion_uid`` and 0.0 elsewhere."""
         if not (0 <= champion_uid < n_uids):
             raise ChainError(f"champion_uid {champion_uid} out of range [0,{n_uids})")
+        self._set_weights(equal_share_vector([champion_uid], n_uids))
+
+    def set_equal_share_weights(
+        self, reward_uids: list[int], n_uids: int, *, burn_uid: int = 0
+    ) -> None:
+        """Push an equal-share weight vector across ``reward_uids``.
+
+        ``reward_uids`` is the current king plus any registered prior kings.
+        Duplicates and out-of-range UIDs are dropped; each survivor gets
+        ``1/k``. When none survive, all weight burns to ``burn_uid`` so emission
+        still leaves the network rather than reverting. Mirrors teutonic's
+        equal-share-across-recent-kings payout.
+        """
+        self._set_weights(equal_share_vector(reward_uids, n_uids, burn_uid=burn_uid))
+
+    def _set_weights(self, weights: list[float]) -> None:
         sub = self.subtensor()
         w = self.wallet()
-        weights = [0.0] * n_uids
-        weights[champion_uid] = 1.0
-        uids = list(range(n_uids))
+        uids = list(range(len(weights)))
         try:
             sub.set_weights(
                 wallet=w,

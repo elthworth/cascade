@@ -8,8 +8,11 @@ The validator never trains. Each round it:
 2. Pulls the king's and challenger's trained checkpoints and scores both on the
    *same* held-out eval windows.
 3. Runs the paired-bootstrap KOTH verdict and folds it into the sticky
-   champion state (``dethrone_cp`` consecutive wins to take the throne).
-4. Sets winner-take-all weights on the reigning king's UID.
+   champion state (``dethrone_cp`` consecutive wins to take the throne;
+   ``dethrone_cp = 1`` makes it single-round).
+4. Sets weights: equal share across the current king plus up to
+   ``[scoring] reward_prior_kings`` registered prior kings (teutonic-style),
+   collapsing to winner-take-all when ``reward_prior_kings = 0``.
 
 The pure orchestration in :meth:`ValidatorRunner.process_round` is testable by
 injecting ``evaluate_fn`` and ``windows``; HF + torch + chain are isolated
@@ -160,6 +163,7 @@ class ValidatorRunner:
             challenger_uid=chal_entry.miner_uid,
             result=result,
             dethrone_cp=self.cfg.scoring.dethrone_cp,
+            keep_former_kings=self.cfg.scoring.reward_prior_kings,
         )
         self.state = transition.state
         log.info(
@@ -208,13 +212,18 @@ class ValidatorRunner:
                         outcome = self.process_round(manifest, windows, base_seed)
                         last_round = manifest.round_id
                         self._persist_state()
-                        vote_uid = self._king_uid_to_vote(manifest, outcome)
-                        if vote_uid is not None:
-                            try:
-                                client.set_winner_take_all_weights(vote_uid, client.n_uids())
-                            except Exception as e:  # noqa: BLE001 — retried next round
-                                log.warning("weight set failed for round=%s (king holds, "
-                                            "retried next round): %s", manifest.round_id, e)
+                        reward_uids = self._reward_uids(manifest, outcome, client)
+                        try:
+                            # Always set weights — when no king/court is registered
+                            # the empty set burns to burn_uid (teutonic-style) so
+                            # emission still leaves the network rather than reverting.
+                            client.set_equal_share_weights(
+                                reward_uids, client.n_uids(),
+                                burn_uid=self.cfg.scoring.burn_uid,
+                            )
+                        except Exception as e:  # noqa: BLE001 — retried next round
+                            log.warning("weight set failed for round=%s (king holds, "
+                                        "retried next round): %s", manifest.round_id, e)
             except Exception as e:  # noqa: BLE001 — a service loop must not die on one round
                 log.exception("round processing failed; retrying after poll: %s", e)
             time.sleep(poll)
@@ -232,6 +241,27 @@ class ValidatorRunner:
             return self.state.king_uid
         king_entry = manifest.entry_for_role("king")
         return king_entry.miner_uid if king_entry is not None else None
+
+    def _reward_uids(
+        self, manifest: TrainingManifest, outcome: RoundOutcome | None, client: object
+    ) -> list[int]:
+        """UIDs that share this round's weight: the current king plus any
+        ``former_kings`` still registered (teutonic-style equal-share payout).
+
+        Returns an empty list when there is no king to vote for at all (no
+        manifest king and no recorded throne); the loop hands that to
+        ``set_equal_share_weights``, which burns to ``burn_uid`` rather than
+        reverting. The list is otherwise deduped/range-checked there too.
+        """
+        uids: list[int] = []
+        king_uid = self._king_uid_to_vote(manifest, outcome)
+        if king_uid is not None:
+            uids.append(king_uid)
+        for hk in self.state.former_kings:
+            uid = client.uid_for_hotkey(hk)  # type: ignore[attr-defined]
+            if uid is not None:
+                uids.append(uid)
+        return uids
 
     def _persist_state(self) -> None:  # pragma: no cover
         from . import state as state_mod

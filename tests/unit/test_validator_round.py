@@ -65,7 +65,26 @@ def test_process_round_strong_challenger_wins(cfg):
     outcome = runner.process_round(_manifest(cfg), windows=[], base_seed=7)
     assert outcome is not None
     assert outcome.result.challenger_wins_round
-    # One win is not a dethrone (needs dethrone_cp consecutive).
+    # chain.toml ships dethrone_cp = 1, so one winning round takes the throne.
+    assert outcome.transition.dethroned
+    assert runner.state.king_hotkey == "chal_hk"
+
+
+def test_win_below_cp_only_increments_streak(cfg):
+    # With a sticky (dethrone_cp > 1) config, a single win records the streak but
+    # does NOT dethrone — the multi-round path is still intact when configured.
+    from dataclasses import replace
+
+    cfg = replace(cfg, scoring=replace(cfg.scoring, dethrone_cp=2))
+    king_scores = _scores(1.0, 0)
+    chal_scores = [WindowScore(s.series_id, s.mase * 0.6, s.qloss_per_q * 0.6, s.abs_target) for s in king_scores]
+
+    def fake_eval(entry, windows):
+        return king_scores if entry.role == "king" else chal_scores
+
+    runner = ValidatorRunner(cfg=cfg, state=genesis("king_hk", 0), evaluate_fn=fake_eval, verify_signatures=False)
+    outcome = runner.process_round(_manifest(cfg), windows=[], base_seed=7)
+    assert outcome.result.challenger_wins_round
     assert not outcome.transition.dethroned
     assert runner.state.streaks.get("chal_hk") == 1
 
@@ -113,6 +132,36 @@ def test_process_round_is_atomic_on_eval_failure(cfg):
     with pytest.raises(RuntimeError):
         runner.process_round(_manifest(cfg), windows=[], base_seed=1)
     assert runner.state is before  # no mutation ⇒ clean retry
+
+
+def test_reward_uids_include_registered_former_kings(cfg):
+    import types
+
+    from metronome.validator.state import ChampionState
+
+    # Current king is uid 0 (manifest king); former court = ["fk1", "fk2"], but
+    # only fk1 is still registered (fk2 deregistered ⇒ dropped).
+    state = ChampionState(king_hotkey="king_hk", king_uid=0, former_kings=("fk1", "fk2"))
+    runner = ValidatorRunner(cfg=cfg, state=state, evaluate_fn=lambda e, w: [], verify_signatures=False)
+    client = types.SimpleNamespace(uid_for_hotkey=lambda hk: {"fk1": 5}.get(hk))
+    uids = runner._reward_uids(_manifest(cfg), None, client)
+    assert uids == [0, 5]
+
+
+def test_reward_uids_empty_when_no_king(cfg):
+    import types
+
+    # No manifest king and an empty throne ⇒ empty reward set; the loop then
+    # burns to burn_uid (teutonic-style) rather than skipping the weight-set.
+    runner = ValidatorRunner(cfg=cfg, evaluate_fn=lambda e, w: [], verify_signatures=False)
+    empty = TrainingManifest(
+        round_id="1", created_block=10,
+        contract_digest=contract_digest(cfg.training),
+        base_arch_digest=cfg.training.base_arch_digest,
+        eval_dataset=cfg.eval.eval_dataset, entries=[],
+    )
+    client = types.SimpleNamespace(uid_for_hotkey=lambda hk: None)
+    assert runner._reward_uids(empty, None, client) == []
 
 
 def test_vote_prefers_manifest_king_without_dethrone(cfg):

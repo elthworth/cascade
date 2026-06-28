@@ -112,14 +112,26 @@ context_length = 4096            # must match [training]; pool must supply >=409
 horizon        = 64
 
 [scoring]
-# King-of-the-hill, pure winner-takes-all. Champion UID gets 1.0, all others 0.
-win_margin_start     = 0.02      # margin a freshly crowned king is challenged at
-win_margin_end       = 0.10      # margin an entrenched king is challenged at
-margin_warmup_rounds = 5         # rounds of tenure to ramp start → end
+# King-of-the-hill — single-round, flat-margin dethroning (teutonic-style).
+# A challenger takes the throne the moment ONE round clears the win margin, and
+# the margin does NOT ramp with the king's tenure: every king is equally
+# challengeable (no "entrenched king" bonus). To restore the sticky/tenure
+# behaviour, set dethrone_cp > 1 and win_margin_end > win_margin_start with
+# margin_warmup_rounds > 0.
+win_margin_start     = 0.02      # flat win margin (kept == win_margin_end ⇒ no tenure ramp)
+win_margin_end       = 0.02      # equal to start; with margin_warmup_rounds = 0 the margin
+                                 # is constant at this value regardless of tenure
+margin_warmup_rounds = 0         # 0 ⇒ no tenure warmup (flat margin)
 min_windows          = 200       # below this many common windows, no decision
 bootstrap_B          = 10000     # paired-bootstrap resamples
 bootstrap_alpha      = 0.05      # one-sided LCB level
-dethrone_cp          = 3         # consecutive round wins required to take the throne
+dethrone_cp          = 1         # consecutive round wins to take the throne (1 = single-round)
+# Reward routing (teutonic-style): equal weight split across the current king
+# plus up to `reward_prior_kings` previous DISTINCT kings that are still
+# registered. If none of them are registered, all weight burns to `burn_uid`.
+# Set reward_prior_kings = 0 for pure winner-take-all on the current king.
+reward_prior_kings   = 4         # prior distinct kings that share weight with the current king
+burn_uid             = 0         # weight sink when no rewarded king is registered (owner burn slot)
 
 [dependencies]
 # Allowlist for a generator's requirements.txt — supply-chain restriction.

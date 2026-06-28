@@ -112,8 +112,10 @@ The validator never trains. Each round it:
 2. Pulls both trained checkpoints and scores them on the **same** held-out
    real-world eval windows (`metronome.validator.evaluator`).
 3. Runs the paired-bootstrap KOTH verdict (`metronome.eval.koth.evaluate_round`)
-   and folds it into the sticky champion state.
-4. Sets winner-take-all weights on the reigning king's UID.
+   and folds it into the champion state.
+4. Sets weights: an equal share across the current king plus up to
+   `[scoring] reward_prior_kings` registered prior kings (`reward_prior_kings = 0`
+   ⇒ winner-take-all on the king; burns to `burn_uid` if none are registered).
 
 ## The controlled-experiment invariant
 
@@ -148,16 +150,20 @@ The KOTH decision is a **paired bootstrap LCB** on the relative improvement of
 `geomean(MWSQL, mean MASE)`, challenger vs king, resampling window indices once
 per bag and aggregating MWSQL numerator/denominator before dividing (robust to
 near-zero-mean windows). The challenger wins a round iff that LCB clears the
-tenure-adjusted win margin on at least `min_windows` common windows. The windows
+win margin on at least `min_windows` common windows. The windows
 are a **rotating private slice** (`metronome.validator.windows`): seeded by the
 round's block hash so every validator scores the identical set and the king/
 challenger comparison is paired, but rotated each round so no fixed eval set can
 be distribution-matched.
 
-Dethroning is sticky: `dethrone_cp` consecutive round wins are required; a single
-loss or inconclusive round resets the streak. An entrenched king's margin ramps
-from `win_margin_start` to `win_margin_end` over `margin_warmup_rounds` of
-tenure, so displacing a long-standing king takes a more decisive win.
+Dethroning is configurable. The shipped `chain.toml` sets `dethrone_cp = 1` with
+a flat margin (`win_margin_start == win_margin_end`, `margin_warmup_rounds = 0`),
+so a single round that clears the margin takes the throne and every king is
+equally challengeable regardless of tenure. The sticky, tenure-weighted variant
+is still available: set `dethrone_cp > 1` (a challenger must then win that many
+**consecutive** rounds; a single loss or inconclusive round resets the streak)
+and let `win_margin_end > win_margin_start` ramp over `margin_warmup_rounds` of
+tenure so an entrenched king must be beaten more decisively.
 
 ## Trust model (v1) and the path to decentralisation
 

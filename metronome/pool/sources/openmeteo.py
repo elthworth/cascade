@@ -7,9 +7,14 @@ enough to fill the full ``context_length`` at hourly frequency.
 
 Gaming resistance comes from harvesting *recent* windows and re-building
 periodically: tomorrow's weather is not knowable at generator-submission time,
-so the rotated pool cannot be memorised or distribution-matched in detail. The
-location list below is a starting seed across climates/continents; the pool
-scales by extending ``LOCATIONS`` / ``VARIABLES`` or rolling the ``as_of``.
+so the rotated pool cannot be memorised or distribution-matched in detail.
+
+Locations default to a deterministic **global grid** (:func:`global_grid`) so the
+pool scales to thousands of series without a hand-maintained list — one API call
+per grid point returns all :data:`VARIABLES`. The default grid (~252 points) ×
+12 variables is ~3000 raw series, comfortably above ``[eval] n_windows`` after
+validation drops. Tune the grid steps (denser = more series) or roll ``as_of``.
+A curated, named :data:`CITIES` list is also provided for callers that prefer it.
 """
 
 from __future__ import annotations
@@ -22,8 +27,27 @@ from ..source import FetchJson, HarvestContext, HarvestedSeries, daterange
 
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
-# (label, latitude, longitude) — broad geographic / climate coverage.
-LOCATIONS: tuple[tuple[str, float, float], ...] = (
+# Continuous variables defined over both land and ocean (ERA5 reanalysis), so a
+# global grid yields usable series everywhere. Sparse/zero-heavy fields
+# (precipitation) and land-only fields (soil_*) are omitted — they would be
+# dropped as degenerate / mostly-missing by the builder anyway.
+VARIABLES: tuple[str, ...] = (
+    "temperature_2m",
+    "relative_humidity_2m",
+    "dew_point_2m",
+    "apparent_temperature",
+    "surface_pressure",
+    "pressure_msl",
+    "cloud_cover",
+    "cloud_cover_low",
+    "cloud_cover_mid",
+    "wind_speed_10m",
+    "wind_speed_100m",
+    "wind_gusts_10m",
+)
+
+# (label, latitude, longitude) — a curated, named seed across climates/continents.
+CITIES: tuple[tuple[str, float, float], ...] = (
     ("tokyo", 35.69, 139.69), ("delhi", 28.61, 77.21), ("shanghai", 31.23, 121.47),
     ("sao_paulo", -23.55, -46.63), ("mexico_city", 19.43, -99.13), ("cairo", 30.04, 31.24),
     ("mumbai", 19.08, 72.88), ("beijing", 39.90, 116.41), ("dhaka", 23.81, 90.41),
@@ -40,12 +64,21 @@ LOCATIONS: tuple[tuple[str, float, float], ...] = (
     ("vancouver", 49.28, -123.12),
 )
 
-VARIABLES: tuple[str, ...] = (
-    "temperature_2m",
-    "relative_humidity_2m",
-    "surface_pressure",
-    "wind_speed_10m",
-)
+
+def global_grid(lat_step: int = 12, lon_step: int = 17) -> tuple[tuple[str, float, float], ...]:
+    """A deterministic lat/lon grid (60S–72N, global longitude).
+
+    ~252 points at the defaults; smaller steps give a denser grid (more series).
+    Ocean points are fine — atmospheric reanalysis is defined there too."""
+    pts: list[tuple[str, float, float]] = []
+    for lat in range(-60, 73, lat_step):
+        for lon in range(-175, 176, lon_step):
+            pts.append((f"grid_{lat}_{lon}", float(lat), float(lon)))
+    return tuple(pts)
+
+
+# Default to the global grid so a no-arg build clears n_windows = 2000.
+LOCATIONS: tuple[tuple[str, float, float], ...] = global_grid()
 
 
 class OpenMeteoSource:

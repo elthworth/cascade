@@ -118,7 +118,8 @@ class HttpFetcher:
                     return json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as e:
                 last = e
-                if e.code < 500:  # client error — retrying won't help
+                # 429 (rate limit) is transient; other 4xx won't improve on retry.
+                if e.code < 500 and e.code != 429:
                     raise HarvestError(f"http_{e.code} for {url}") from e
             except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as e:
                 last = e

@@ -33,13 +33,22 @@ HISTORY_DAYS = 1500  # ~4 years of daily points
 # culture) so the set is reliably populated and topically diverse.
 ARTICLES: tuple[str, ...] = (
     "United_States", "India", "China", "Germany", "Japan", "Brazil", "Russia",
-    "France", "United_Kingdom", "Canada", "Australia", "Climate_change",
-    "Artificial_intelligence", "World_War_II", "Mathematics", "Physics",
-    "Economics", "Photosynthesis", "DNA", "Black_hole", "Apple_Inc.", "Google",
-    "Microsoft", "Amazon_(company)", "Tesla,_Inc.", "Bitcoin", "Association_football",
-    "Olympic_Games", "Basketball", "Chess", "The_Beatles", "Taylor_Swift",
+    "France", "United_Kingdom", "Canada", "Australia", "Italy", "Spain", "Mexico",
+    "Indonesia", "Nigeria", "Egypt", "South_Africa", "Turkey", "Argentina",
+    "Climate_change", "Artificial_intelligence", "World_War_II", "World_War_I",
+    "Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Philosophy",
+    "Photosynthesis", "DNA", "Black_hole", "Evolution", "Quantum_mechanics",
+    "Solar_System", "Periodic_table", "Human_brain", "Vaccine", "Electricity",
+    "Apple_Inc.", "Google", "Microsoft", "Amazon_(company)", "Tesla,_Inc.",
+    "Meta_Platforms", "Netflix", "Nvidia", "Samsung", "Toyota",
+    "Bitcoin", "Ethereum", "Stock_market", "Inflation", "Cryptocurrency",
+    "Association_football", "Olympic_Games", "Basketball", "Chess", "Cricket",
+    "Tennis", "Formula_One", "FIFA_World_Cup", "National_Basketball_Association",
+    "The_Beatles", "Taylor_Swift", "Michael_Jackson", "Beyoncé", "Elvis_Presley",
     "William_Shakespeare", "Albert_Einstein", "Isaac_Newton", "Leonardo_da_Vinci",
+    "Charles_Darwin", "Nikola_Tesla", "Marie_Curie", "Stephen_Hawking",
     "Pyramids_of_Giza", "Mount_Everest", "Pacific_Ocean", "Amazon_rainforest",
+    "Sahara", "Great_Barrier_Reef", "Niagara_Falls", "Grand_Canyon",
 )
 
 

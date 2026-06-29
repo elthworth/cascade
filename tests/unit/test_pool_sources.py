@@ -87,6 +87,25 @@ def test_wikimedia_skips_sparse_articles():
     assert list(src.harvest(lambda u, p: {"items": [{"views": 1}]}, CTX)) == []
 
 
+def test_default_sources_can_supply_2000_windows():
+    from metronome.pool.sources.openmeteo import OpenMeteoSource, global_grid
+    from metronome.pool.sources.wikimedia import WikimediaSource
+
+    grid = global_grid()
+    assert len(grid) > 200
+    src = OpenMeteoSource()
+    weather = len(src.locations) * len(src.variables)
+    web = len(WikimediaSource().articles)
+    # Default pool must clear [eval] n_windows = 2000 with margin for validation drops.
+    assert weather + web >= 2500
+
+
+def test_global_grid_denser_with_smaller_steps():
+    from metronome.pool.sources.openmeteo import global_grid
+
+    assert len(global_grid(lat_step=6, lon_step=8)) > len(global_grid())
+
+
 def test_synthetic_is_deterministic_and_sized():
     src = SyntheticSource(n_series=5)
     a = list(src.harvest(None, CTX))

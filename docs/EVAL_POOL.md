@@ -105,14 +105,21 @@ credentials, so a Hippius-only operator needs nothing extra.
 
 | name        | domain      | freq | seasonality | notes |
 |-------------|-------------|------|-------------|-------|
-| `openmeteo` | weather     | H    | 24 (daily)  | keyless archive API; backbone, fills full context |
-| `wikimedia` | web_traffic | D    | 7 (weekly)  | keyless REST API; shorter-context breadth |
+| `openmeteo` | weather     | H    | 24 (daily)  | keyless archive API; global grid (~252 pts × 12 vars), fills full context |
+| `wikimedia` | web_traffic | D    | 7 (weekly)  | keyless REST API; ~85 articles, shorter-context breadth |
 | `synthetic` | synthetic   | H    | 24          | offline/testing only — **not** for a real pool |
 
-The shipped location/article lists are a starting seed. **Scale the pool by
-data, not code**: extend `LOCATIONS` / `VARIABLES` / `ARTICLES`, raise
-`--max-series-*`, or add a source. Aim comfortably above `[scoring] min_windows`
-(and ideally `[eval] n_windows`) — the CLI warns if the pool is too small.
+The defaults produce **~3000 raw series** (Open-Meteo's global grid dominates),
+which clears `[eval] n_windows = 2000` with margin after validation drops — and
+leaves the pool larger than `n_windows`, so each round draws a *different* 2000
+slice (intra-day rotation), on top of the daily snapshot rotation.
+
+**Scale the pool by data, not code**: make the Open-Meteo grid denser
+(`global_grid(lat_step, lon_step)`), extend `VARIABLES` / `ARTICLES`, or add a
+source. One Open-Meteo call per grid point returns all variables, so a denser
+grid is the cheapest lever. The CLI warns if the pool falls below
+`[scoring] min_windows`. (At ~252 grid points that's ~252 API calls + ~85 for
+Wikimedia per daily build — well within the keyless free tiers.)
 
 ## Adding a source
 

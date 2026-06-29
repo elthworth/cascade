@@ -229,7 +229,12 @@ def _resolve_hub_token(action: str) -> str:
 
 @dataclass(frozen=True)
 class HubConfig:
-    """How to reach the Hippius Hub OCI registry (credentials come from env)."""
+    """How to reach the Hippius Hub OCI registry (credentials come from env).
+
+    ``registry_url`` is informational — ``hippius_hub`` targets its own default
+    endpoint and is not redirected by this value. ``namespace`` *is* used: it is
+    the repo prefix the trainer/owner push under.
+    """
 
     registry_url: str = "https://registry.hippius.com"
     namespace: str = "metronome"

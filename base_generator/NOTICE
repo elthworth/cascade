@@ -1,0 +1,63 @@
+metronome base generator (genesis "base" king)
+================================================
+
+This generator vendors and adapts a subset of the synthetic time-series
+generators from the TempoPFN project. The vendored code lives under
+``tempo_gen/`` and is import-rewritten (``src.*`` -> ``tempo_gen.*``) but is
+otherwise derived from the upstream sources.
+
+Upstream project
+----------------
+TempoPFN — Synthetic Pre-Training of Linear RNNs for Zero-Shot Time Series
+Forecasting.
+  Authors: Vladyslav Moroshan, Julien Siems, Arber Zela, Timur Carstensen,
+           Frank Hutter.
+  Paper:   arXiv:2510.25502  (https://arxiv.org/abs/2510.25502)
+  Code:    https://github.com/automl/TempoPFN
+  License: Apache License 2.0 (see the bundled LICENSE file).
+
+  @misc{moroshan2025tempopfn,
+    author = {Vladyslav Moroshan and Julien Siems and Arber Zela and
+              Timur Carstensen and Frank Hutter},
+    title  = {TempoPFN: Synthetic Pre-Training of Linear RNNs for Zero-Shot
+              Time Series Forecasting},
+    year   = {2025},
+    eprint = {2510.25502},
+    archivePrefix = {arXiv}
+  }
+
+What was vendored (v1)
+----------------------
+Seven procedural generator families whose transitive imports are clean against
+metronome's dependency allowlist (numpy, scipy, pandas, torch):
+
+  ForecastPFN, SineWave, SawTooth, Step, Anomaly, Spikes, OrnsteinUhlenbeck
+
+plus the minimal support modules they need: the ``TimeSeriesContainer`` (trimmed
+to drop the unused torch-based batch container), the frequency helpers
+(``Frequency``, ``select_safe_random_frequency``, ``select_safe_start_date``),
+the ``GeneratorParams`` dataclasses, and ``generate_spikes``.
+
+Modifications made to the vendored code
+---------------------------------------
+* Import paths rewritten from ``src.*`` to ``tempo_gen.*``.
+* DETERMINISM FIX: ``GeneratorWrapper._set_random_seeds`` previously derived a
+  per-generator seed offset from the builtin ``hash(class_name)``, which is
+  salted per process by PYTHONHASHSEED and is therefore NOT reproducible across
+  processes. It now uses ``zlib.crc32`` (a stable, process-independent
+  checksum). metronome audits determinism by re-running the generator in a
+  separate process, so this fix is load-bearing.
+* ``data/containers.py`` trimmed to the numpy ``TimeSeriesContainer`` only
+  (dropped the torch-dependent ``BatchTimeSeriesContainer``).
+* Removed a stray ``print()`` from the OU generator's hot path.
+
+What was intentionally EXCLUDED from v1
+---------------------------------------
+KernelSynth (scikit-learn), the GP prior (gpytorch), CauKer (networkx +
+scikit-learn), and all audio generators (pyo) — their transitive imports pull
+dependencies that are not on metronome's allowlist. See the TODO(v2) note in
+``generator.py``: the GP / kernel family should be reimplemented in numpy/scipy
+(FFT/circulant embedding or scipy.linalg.cholesky) and added back, since the
+TempoPFN ablation shows that family carries a large share of the signal.
+
+No model weights are shipped (these generators are purely procedural).

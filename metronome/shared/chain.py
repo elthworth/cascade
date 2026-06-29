@@ -114,7 +114,11 @@ class ChainClient:
     def subtensor(self):
         if self._subtensor is None:
             bt = _import_bittensor()
-            self._subtensor = bt.subtensor(network=self.network)
+            # bittensor <9 exposed a lowercase ``subtensor`` factory; 9+/10 only
+            # ship the ``Subtensor`` class. Support both so the client works
+            # across the ``bittensor>=8`` range pyproject allows.
+            subtensor_factory = getattr(bt, "subtensor", None) or bt.Subtensor
+            self._subtensor = subtensor_factory(network=self.network)
         return self._subtensor
 
     def wallet(self):

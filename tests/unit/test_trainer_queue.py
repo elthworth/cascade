@@ -13,6 +13,7 @@ from metronome.trainer.queue import (
     SKIP_ALREADY_QUEUED,
     SKIP_ALREADY_TRAINED,
     SKIP_DUPLICATE_OF_KING,
+    SKIP_HOTKEY_ALREADY_USED,
     QueuedSubmission,
     SubmissionQueue,
 )
@@ -75,8 +76,10 @@ def test_plan_round_interim_king_when_king_absent():
 def test_enqueue_accepts_then_rejects_duplicate_ref():
     q = SubmissionQueue()
     assert q.enqueue(_sub("a", 1, A)) is None
-    # same ref again (idempotent re-discovery) is rejected
-    assert q.enqueue(_sub("a", 1, A)) == SKIP_ALREADY_QUEUED
+    # A second hotkey committing the SAME ref is rejected as already-queued. (The
+    # same hotkey can never re-enqueue — that path is the lifetime hotkey burn,
+    # tested separately — so already-queued is reached via a distinct hotkey.)
+    assert q.enqueue(_sub("b", 2, A)) == SKIP_ALREADY_QUEUED
     assert [s.ref for s in q.pending] == [A]
 
 
@@ -92,16 +95,69 @@ def test_enqueue_rejects_already_trained_this_reign():
     q.note_king(KING)
     assert q.enqueue(_sub("a", 1, A)) is None
     q.mark_trained(A)
-    # A had its shot this reign; re-discovery is skipped and it leaves the backlog
-    assert q.enqueue(_sub("a", 1, A)) == SKIP_ALREADY_TRAINED
+    # Ref A had its shot this reign; a DIFFERENT hotkey re-committing it is skipped
+    # as already-trained. (The original hotkey "a" is now burned for life, so the
+    # already-trained gate is reached via a distinct hotkey committing the ref.)
+    assert q.enqueue(_sub("b", 2, A)) == SKIP_ALREADY_TRAINED
     assert q.pending == []
 
 
-def test_latest_commit_supersedes_same_hotkey():
+def test_latest_commit_supersedes_first_still_pending_submission():
+    # latest-commit-wins still works for a hotkey's FIRST, still-pending entry:
+    # a re-deploy that arrives before the original was ever drained replaces it.
+    # (Burn-at-enqueue means both attempts share one already-burned hotkey, so
+    # the second must be allowed to supersede or the re-deploy would be stuck.)
     q = SubmissionQueue()
     assert q.enqueue(_sub("a", 1, A, block=1)) is None
-    assert q.enqueue(_sub("a", 1, B, block=2)) is None  # a re-deployed to ref B
-    assert [s.ref for s in q.pending] == [B]
+    # The hotkey is now seen — under the lifetime burn a re-deploy is rejected by
+    # the hotkey gate, so the older entry is NOT superseded; the first wins.
+    assert q.enqueue(_sub("a", 1, B, block=2)) == SKIP_HOTKEY_ALREADY_USED
+    assert [s.ref for s in q.pending] == [A]
+
+
+# ── 1 hotkey, 1 eval (lifetime burn) ──────────────────────────────────────────
+
+
+def test_enqueue_burns_hotkey_at_enqueue_before_any_train():
+    # The hotkey is burned the moment enqueue accepts it — before mark_trained.
+    q = SubmissionQueue()
+    assert "a" not in q.seen_hotkeys
+    assert q.enqueue(_sub("a", 1, A)) is None
+    assert "a" in q.seen_hotkeys  # burned at enqueue, no train needed
+
+
+def test_enqueue_rejects_seen_hotkey_even_with_different_cid():
+    # A miner re-deploying under the SAME hotkey (fresh CID) gets no second shot.
+    q = SubmissionQueue()
+    assert q.enqueue(_sub("a", 1, A)) is None
+    assert q.enqueue(_sub("a", 1, B)) == SKIP_HOTKEY_ALREADY_USED
+    assert q.enqueue(_sub("a", 1, C)) == SKIP_HOTKEY_ALREADY_USED
+    assert [s.ref for s in q.pending] == [A]  # only the first ever entered
+
+
+def test_seen_gate_fires_before_duplicate_of_king_and_already_trained():
+    # A seen hotkey submitting a brand-new, king-distinct, never-trained CID is
+    # still rejected for being seen — the hotkey gate runs first.
+    q = SubmissionQueue()
+    q.note_king(KING)
+    assert q.enqueue(_sub("a", 1, A)) is None  # burns hotkey "a"
+    q.mark_trained(A)  # A leaves the backlog and is trained this reign
+    # B is not the king, not queued, not trained — only "a" being seen rejects it.
+    assert B != KING and B not in q.trained_refs and not any(s.ref == B for s in q.pending)
+    assert q.enqueue(_sub("a", 1, B)) == SKIP_HOTKEY_ALREADY_USED
+
+
+def test_seen_hotkeys_survives_reign_turnover():
+    # note_king() clears the per-reign trained cache but NOT the lifetime burn:
+    # a hotkey from reign 1 is still rejected in reign 2.
+    q = SubmissionQueue()
+    q.note_king(KING)
+    assert q.enqueue(_sub("a", 1, A)) is None
+    q.mark_trained(A)
+    assert q.note_king(C) is True  # throne turns over → new reign
+    assert q.trained_refs == []  # per-reign cache cleared
+    assert "a" in q.seen_hotkeys  # lifetime burn preserved
+    assert q.enqueue(_sub("a", 1, B)) == SKIP_HOTKEY_ALREADY_USED
 
 
 # ── FIFO selection / completion ───────────────────────────────────────────────
@@ -197,6 +253,17 @@ def test_dumps_loads_round_trip():
         ("b", 2, B, 11),
     ]
     assert back.trained_refs == [C]
+    # the lifetime hotkey burn round-trips as a set (persists across restart)
+    assert back.seen_hotkeys == {"a", "b"}
+
+
+def test_seen_hotkeys_persists_across_restart():
+    # A hotkey burned before a restart is still rejected after reloading state.
+    q = SubmissionQueue()
+    assert q.enqueue(_sub("a", 1, A)) is None
+    back = load_queue(dump_queue(q))
+    assert back.seen_hotkeys == {"a"}
+    assert back.enqueue(_sub("a", 1, B)) == SKIP_HOTKEY_ALREADY_USED
 
 
 def test_loads_tolerates_empty_payload():
@@ -204,3 +271,4 @@ def test_loads_tolerates_empty_payload():
     assert q.pending == []
     assert q.king_ref is None
     assert q.trained_refs == []
+    assert q.seen_hotkeys == set()

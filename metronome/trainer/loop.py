@@ -335,6 +335,14 @@ class TrainerRunner:
         for dropped in queue.prune_to_field(set(by_ref) | ({king_ref} if king_ref else set())):
             log.info("pruning queued %s: ref no longer in the on-chain field", dropped.hotkey)
         for c in plan.challengers:
+            # 1-hotkey-1-eval: skip already-burned hotkeys before enqueue. The
+            # enqueue gate is the source of truth (and rejects them anyway); this
+            # belt-and-suspenders filter at the on-chain intake layer just keeps
+            # logs clean of repeated enqueue-rejections each round, matching
+            # teutonic's scan_reveals filtering by ``seen`` before enqueue.
+            if c.hotkey in queue.seen_hotkeys:
+                log.info("skipping %s: already used its 1-eval slot, must re-register", c.hotkey)
+                continue
             reason = queue.enqueue(QueuedSubmission(c.hotkey, c.uid, c.ref, block))
             if reason is not None:
                 log.info("skip enqueue %s (ref %s…): %s", c.hotkey, c.ref[:24], reason)

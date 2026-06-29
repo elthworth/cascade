@@ -1,0 +1,18 @@
+{
+  "min_length": 64,
+  "max_length": 2048,
+  "generate_length": 2048,
+  "batch_size": 256,
+  "weights": {
+    "forecast_pfn": 0.20,
+    "ornstein_uhlenbeck": 0.15,
+    "sine_waves": 0.15,
+    "steps": 0.13,
+    "sawtooth": 0.13,
+    "anomalies": 0.12,
+    "spikes": 0.12
+  },
+  "standardize": false,
+  "clip_sigma": 0.0,
+  "max_abs_value": 1000000.0
+}

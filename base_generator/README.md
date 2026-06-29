@@ -1,0 +1,59 @@
+# metronome base generator (genesis "base" king)
+
+A self-contained metronome data generator that adapts a curated subset of
+[TempoPFN](https://github.com/automl/TempoPFN)'s procedural synthetic time-series
+priors into a single deterministic `Generator(DataGenerator)`. Intended as the
+launch/genesis king for the metronome subnet.
+
+## What's inside
+
+| file | purpose |
+|------|---------|
+| `generator.py` | `class Generator(DataGenerator)` — the entrypoint |
+| `config.json` | length band, per-family mixing weights, sanitisation knobs |
+| `requirements.txt` | hash-locked, allowlisted deps (`numpy, scipy, pandas, torch`) |
+| `tempo_gen/` | vendored, import-rewritten TempoPFN subset (Apache-2.0) |
+| `NOTICE`, `LICENSE` | TempoPFN attribution + Apache-2.0 text |
+| `tests/` | contract tests + a diversity sanity check |
+
+## Generator families (v1)
+
+Seven families whose transitive imports are clean against metronome's dependency
+allowlist are mixed by weight: **ForecastPFN, SineWave, SawTooth, Step, Anomaly,
+Spikes, OrnsteinUhlenbeck**. Each is drawn at `generate_length` (2048) and
+deterministically random-cropped into the `[min_length, max_length]` band for
+length diversity.
+
+KernelSynth (sklearn), the GP prior (gpytorch), CauKer (networkx+sklearn) and the
+audio generators (pyo) are **excluded** from v1 because they pull non-allowlisted
+deps. See the `TODO(v2)` note in `generator.py` for the planned numpy/scipy
+reimplementation of the GP/kernel family.
+
+## Determinism
+
+The corpus is a pure function of `(seed, n_series)`. We seed NumPy / torch /
+Python `random` from `seed`, run torch on CPU with deterministic algorithms,
+derive every per-family and per-series sub-seed from the master seed, and use a
+separate seeded RNG for cropping. The upstream `hash()`-based per-generator seed
+offset — salted per process by `PYTHONHASHSEED` — was replaced with a stable
+`zlib.crc32` in `tempo_gen/.../abstract_classes.py`, so two audit runs in
+*separate processes* produce byte-identical corpora.
+
+## Verify / test
+
+```bash
+# from the metronome repo root, with deps installed and metronome importable
+metronome verify ./base_generator                       # full trainer-side checks
+PYTHONPATH=$PWD pytest base_generator/tests -q           # contract tests
+PYTHONPATH=$PWD python base_generator/tests/diversity_check.py
+```
+
+## Config knobs (`config.json`)
+
+- `min_length` / `max_length` — per-series length band (defaults 64 / 2048, matching `chain.toml`).
+- `generate_length` — length generators are drawn at before cropping (>= `max_length`).
+- `batch_size` — internal generation batch size (memory/throughput knob).
+- `weights` — per-family mixing weights (normalised; families with weight 0 or absent are skipped).
+- `standardize` — z-normalise each series (default `false`; off preserves scale diversity).
+- `clip_sigma` — if > 0, clip each series to `mean ± clip_sigma·std` (default `0`, disabled).
+- `max_abs_value` — hard magnitude clip to keep output trainer-safe finite.

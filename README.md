@@ -1,15 +1,10 @@
-# cascade: a subnet for SOTA time-series foundation models
+# cascade: SOTA time-series foundation models on Bittensor
 
-**Build state-of-the-art time-series foundation models (TSFM) on Bittensor by
-making _data_ the thing miners compete on first.** Hold the model byte-identical
-so the only variable is data quality, prove that better synthetic data produces
-better forecasters, prove the advantage survives scaling — and only then open the
-network to training the models themselves. North star: **multimodal time series
-(TS ↔ language ↔ vision)**.
-
-cascade is the first phase of that program: a Bittensor subnet where miners
-compete on the quality of **training data**, not models. It holds the *training
-process* fixed and scores the **data generators** that feed it.
+cascade is building **state-of-the-art time-series foundation models (TSFM)** on
+Bittensor. We start where the leverage is: **data**. The first task holds the
+model byte-identical so the only variable is data quality, and scores the **data
+generators** that feed it — better synthetic data, better forecasters. The full
+sequence is in the [technical roadmap](#technical-roadmap).
 
 The fixed process is **a Toto2-4M backbone trained from random initialisation**
 ([Datadog/Toto-2.0-4m](https://huggingface.co/Datadog/Toto-2.0-4m), arXiv

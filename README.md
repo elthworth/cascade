@@ -152,38 +152,6 @@ larger, noisier surface of training the models themselves.
 * North star — multimodal. Forecasting that reads and writes across
   modalities: time series ↔ language ↔ vision.
 
-### What we optimize for
-
-The active research informing this roadmap, distilled:
-
-1. Data first. A TSFM is only as good as what it learned from, and synthetic
-   data is the cheapest way to improve that — Toto 2.0 topped GIFT-Eval on a
-   corpus that was ~57% synthetic and 0% public series. Build the data pipeline
-   first (causal + kernel-composition generators, plus a *filtered* real subset);
-   treat model training as the thing that measures data quality, not the thing you
-   compete on.
-2. Diversity over volume. The goal is coverage of distinct underlying
-   processes, not raw size. Reward coverage and informativeness, penalize
-   redundancy, and cover the hard cases — driven, stochastic, regime-switching
-   dynamical systems — where benchmarks live and most generators are thin. The
-   real prize is a generator whose edge *survives* as the model scales.
-3. Inductive biases that fit the job. Probabilistic, multi-step quantile
-   heads (not point forecasts); state-tracking backbones (xLSTM / SSM / Mamba) for
-   long horizons, where decoder-only transformers aren't automatically the answer
-   and encoder-only models can generalize better OOD; external drivers as
-   first-class inputs; a dynamical-systems objective worth testing for long-term
-   fidelity.
-4. Scale the cheap axis. Context length and test-time compute may matter more
-   than parameter count — staying deliberately small (sub-200M) is a real option.
-   µP makes scaling a config change rather than a re-tune, which is what makes
-   "does the advantage hold at scale?" affordable to even ask.
-5. Non-leaked evals. The field has an evaluation crisis: leakage and
-   saturated benchmarks flatter models. Score on provably-fresh data with a
-   dynamic eval that can't be memorized; always include strong-but-dumb baselines
-   (context-parroting, DLinear) and run an overlap audit before trusting any
-   zero-shot number; report bootstrapped win rates with confidence intervals
-   across many tasks, not single headline scores.
-
 ## Three roles
 
 | role | package | needs GPU | needs chain |

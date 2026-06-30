@@ -63,17 +63,25 @@ def test_round_cadence_loads(cfg):
     assert cfg.round.heat_n_windows <= cfg.eval.n_windows
 
 
-def test_final_sizes_primary_plus_extra(cfg):
+def test_shipped_config_is_single_size_at_launch(cfg):
+    # 20M is disabled in the committed chain.toml at launch — rounds run the 4M
+    # primary only. Uncomment [[training.sizes]] to bring the 20M size online.
+    assert cfg.training.extra_sizes == ()
+    assert [s.arch_preset for s in cfg.training.final_sizes()] == [cfg.training.arch_preset]
+
+
+def test_final_sizes_primary_plus_extra(two_size_cfg):
+    cfg = two_size_cfg
     sizes = cfg.training.final_sizes()
-    # chain.toml ships the primary size plus at least one [[training.sizes]].
-    assert len(sizes) == 1 + len(cfg.training.extra_sizes)
+    assert len(sizes) == 1 + len(cfg.training.extra_sizes) == 2
     assert sizes[0].arch_preset == cfg.training.arch_preset      # primary first
     assert sizes[0].extra_sizes == ()                            # each is a single concrete size
     presets = [s.arch_preset for s in sizes]
     assert len(presets) == len(set(presets))                     # distinct sizes
 
 
-def test_for_size_overrides_only_shape_and_keeps_family_invariants(cfg):
+def test_for_size_overrides_only_shape_and_keeps_family_invariants(two_size_cfg):
+    cfg = two_size_cfg
     spec = cfg.training.extra_sizes[0]
     sized = cfg.training.for_size(spec)
     # width/depth + digest + throughput come from the spec …
@@ -86,18 +94,19 @@ def test_for_size_overrides_only_shape_and_keeps_family_invariants(cfg):
     assert sized.target_train_hours == cfg.training.target_train_hours
 
 
-def test_extra_sizes_change_contract_digest(cfg):
+def test_extra_sizes_change_contract_digest(two_size_cfg):
     # Every size is folded into the one manifest-level contract digest, so the
     # validator's contract gate covers all sizes at once.
     from dataclasses import replace
 
     from cascade.shared.manifest import contract_digest
 
-    base = contract_digest(cfg.training)
-    assert base != contract_digest(replace(cfg.training, extra_sizes=()))
+    base = contract_digest(two_size_cfg.training)
+    assert base != contract_digest(replace(two_size_cfg.training, extra_sizes=()))
 
 
-def test_tokens_for_hours_uses_per_size_throughput(cfg):
+def test_tokens_for_hours_uses_per_size_throughput(two_size_cfg):
+    cfg = two_size_cfg
     spec = cfg.training.extra_sizes[0]
     sized = cfg.training.for_size(spec)
     assert sized.tokens_for_hours(cfg.round.heat_train_hours) == round(

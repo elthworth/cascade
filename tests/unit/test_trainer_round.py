@@ -61,8 +61,9 @@ def _commit(uid, hotkey, ref, block):
                       payload=f"metro-v1:gen:hippius:{ref}", commit_block=block)
 
 
-def test_run_round_trains_king_and_challenger_at_every_size(cfg, tmp_path, monkeypatch):
+def test_run_round_trains_king_and_challenger_at_every_size(two_size_cfg, tmp_path, monkeypatch):
     _patch_train_boundaries(monkeypatch)
+    cfg = two_size_cfg
     runner = TrainerRunner(cfg=cfg, base_trainer=_FakeBaseTrainer(), work_root=tmp_path,
                            use_sandbox=False)
     commits = [_commit(0, "a", REF_A, 5), _commit(1, "b", REF_B, 6)]
@@ -70,7 +71,7 @@ def test_run_round_trains_king_and_challenger_at_every_size(cfg, tmp_path, monke
 
     assert manifest.round_id == "1"
     sizes = sorted(s.arch_preset for s in cfg.training.final_sizes())
-    assert len(sizes) >= 2  # chain.toml ships primary + a [[training.sizes]]
+    assert len(sizes) == 2  # primary + the extra size
     # One (king, challenger) pair per configured size, each tagged with its size.
     assert sorted(e.size for e in manifest.entries_for_role("king")) == sizes
     assert sorted(e.size for e in manifest.entries_for_role("challenger")) == sizes
@@ -78,6 +79,18 @@ def test_run_round_trains_king_and_challenger_at_every_size(cfg, tmp_path, monke
     assert manifest.entry_for_role("challenger").gen_ref == REF_B
     # contract/base-arch digests recorded once for the controlled-experiment gate
     assert manifest.contract_digest and manifest.base_arch_digest == cfg.training.base_arch_digest
+
+
+def test_run_round_single_size_at_launch(cfg, tmp_path, monkeypatch):
+    # Shipped config (20M disabled) ⇒ king + challenger trained at the 4M primary
+    # only: exactly one entry per role, tagged with the primary preset.
+    _patch_train_boundaries(monkeypatch)
+    runner = TrainerRunner(cfg=cfg, base_trainer=_FakeBaseTrainer(), work_root=tmp_path,
+                           use_sandbox=False)
+    commits = [_commit(0, "a", REF_A, 5), _commit(1, "b", REF_B, 6)]
+    manifest = runner.run_round(commits, king_hotkey="a", base_seed=1, block=10)
+    assert [e.size for e in manifest.entries_for_role("king")] == [cfg.training.arch_preset]
+    assert [e.size for e in manifest.entries_for_role("challenger")] == [cfg.training.arch_preset]
 
 
 def test_run_round_skips_challenger_that_copies_the_king(cfg, tmp_path, monkeypatch):

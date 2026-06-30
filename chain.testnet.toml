@@ -101,18 +101,21 @@ corpus_mode = "stream_cpu"
 expected_gpu = ""
 
 # Extra final-stage sizes (see chain.toml for the full explanation). The throne
-# is decided on the COMBINED score across all sizes. TESTNET: a small second size
-# for fast iteration; pin width/depth + base_arch_digest to the released
-# Datadog/Toto-2.0-22m before any real testnet launch (recompute with
-# `cascade-trainer --offline --chain-toml chain.testnet.toml`).
-[[training.sizes]]
-arch_preset                 = "toto2-22m"
-base_arch_digest            = "c7ecca53ed939eabfc34ccdb8a698d69101526c24f299efa21c0c0c288c96792"  # sha256 of this size's frozen arch+init; recompute with `cascade-trainer --offline`
-d_model                     = 512
-num_layers                  = 8
-num_heads                   = 8
-mlp_expansion               = 2
-ref_throughput_tokens_per_s = 90000
+# is decided on the COMBINED score across all sizes.
+#
+# === 20M (Toto2-22M) is DISABLED at launch ===
+# Uncomment to bring the 20M size into the final (combined 4M+20M throne). Use
+# testnet to validate the multi-size path first: pin width/depth + base_arch_digest
+# to the released Datadog/Toto-2.0-22m and recompute with
+# `cascade-trainer --offline --chain-toml chain.testnet.toml`.
+# [[training.sizes]]
+# arch_preset                 = "toto2-22m"
+# base_arch_digest            = "c7ecca53ed939eabfc34ccdb8a698d69101526c24f299efa21c0c0c288c96792"  # sha256 of this size's frozen arch+init; recompute with `cascade-trainer --offline`
+# d_model                     = 512
+# num_layers                  = 8
+# num_heads                   = 8
+# mlp_expansion               = 2
+# ref_throughput_tokens_per_s = 90000
 
 [round]
 # Daily-style cadence + two-stage (heat → final) selection. TESTNET uses a SHORT

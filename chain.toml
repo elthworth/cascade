@@ -103,19 +103,22 @@ expected_gpu = ""
 # width/depth fields plus its own frozen-arch digest and reference throughput;
 # everything else (head_dim, patch_size, objective, optimiser, budget hours) is
 # inherited from [training], so a size cannot diverge on anything but its shape.
-# Remove every [[training.sizes]] block to run single-size (legacy) rounds.
+# With NO [[training.sizes]] block, rounds are single-size (the 4M primary only).
 #
-# Pin d_model/num_layers/num_heads to the released Datadog/Toto-2.0-22m
-# config.json and recompute base_arch_digest with `cascade-trainer --offline`
-# before launch (the digest below is a launch placeholder).
-[[training.sizes]]
-arch_preset                 = "toto2-22m"
-base_arch_digest            = "c7ecca53ed939eabfc34ccdb8a698d69101526c24f299efa21c0c0c288c96792"  # sha256 of this size's frozen arch+init; recompute with `cascade-trainer --offline`
-d_model                     = 512
-num_layers                  = 8
-num_heads                   = 8       # head_dim stays 64 across the family ⇒ d_model = num_heads × 64
-mlp_expansion               = 2
-ref_throughput_tokens_per_s = 90000   # MEASURE on the reference GPU for THIS size (larger ⇒ slower)
+# === 20M (Toto2-22M) is DISABLED at launch ===
+# Uncomment the block below to add the 20M size to the final — the trainer then
+# trains king + finalist at both sizes and the validator decides ONE throne on
+# the combined 4M+20M score. Before enabling: pin d_model/num_layers/num_heads to
+# the released Datadog/Toto-2.0-22m config.json, measure its throughput, and
+# recompute base_arch_digest with `cascade-trainer --offline`.
+# [[training.sizes]]
+# arch_preset                 = "toto2-22m"
+# base_arch_digest            = "c7ecca53ed939eabfc34ccdb8a698d69101526c24f299efa21c0c0c288c96792"  # sha256 of this size's frozen arch+init; recompute with `cascade-trainer --offline`
+# d_model                     = 512
+# num_layers                  = 8
+# num_heads                   = 8       # head_dim stays 64 across the family ⇒ d_model = num_heads × 64
+# mlp_expansion               = 2
+# ref_throughput_tokens_per_s = 90000   # MEASURE on the reference GPU for THIS size (larger ⇒ slower)
 
 [round]
 # Daily round cadence + two-stage (heat → final) selection.

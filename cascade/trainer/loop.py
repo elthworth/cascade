@@ -198,6 +198,12 @@ class TrainerRunner:
         out_dir = self.work_root / f"{seeds.base_seed}" / role / "checkpoint"
         out_dir.mkdir(parents=True, exist_ok=True)
         token_budget = self.cfg.training.train_tokens
+        log.info(
+            "round=%s role=%s: fetched generator %s — building corpus + training "
+            "(mode=%s, budget=%s point-passes) …",
+            seeds.base_seed, role, gen.ref[:48],
+            self.cfg.training.corpus_mode, f"{token_budget:,}",
+        )
 
         # Stream per-step metrics to S3 (best-effort: logging must never abort a
         # training run).

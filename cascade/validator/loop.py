@@ -196,6 +196,11 @@ class ValidatorRunner:
                 manifest = load_manifest(read_latest_manifest(store))
                 if manifest.round_id != last_round:
                     base_seed = int(manifest.round_id)
+                    log.info(
+                        "new manifest round=%s entries=%d (%s); gating + scoring …",
+                        manifest.round_id, len(manifest.entries),
+                        ",".join(f"{e.role}:uid{e.miner_uid}" for e in manifest.entries),
+                    )
                     # Gate first so a rejected manifest never moves weights.
                     reason = self.check_manifest(manifest)
                     if reason is not None:
@@ -216,9 +221,15 @@ class ValidatorRunner:
                             # Always set weights — when no king/court is registered
                             # the empty set burns to burn_uid (teutonic-style) so
                             # emission still leaves the network rather than reverting.
+                            n_uids = client.n_uids()
                             client.set_equal_share_weights(
-                                reward_uids, client.n_uids(),
+                                reward_uids, n_uids,
                                 burn_uid=self.cfg.scoring.burn_uid,
+                            )
+                            log.info(
+                                "round=%s weights set: reward_uids=%s (n_uids=%d, burn_uid=%d)",
+                                manifest.round_id, reward_uids or [self.cfg.scoring.burn_uid],
+                                n_uids, self.cfg.scoring.burn_uid,
                             )
                         except Exception as e:  # noqa: BLE001 — retried next round
                             log.warning("weight set failed for round=%s (king holds, "

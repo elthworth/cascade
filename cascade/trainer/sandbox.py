@@ -317,6 +317,16 @@ def _disable_network() -> None:
     """Defense-in-depth: make Python-level socket use raise inside the child."""
     import socket
 
+    # Pre-import stdlib modules that subclass the real ``socket`` class at import
+    # time (``ssl.SSLSocket(socket)``, and ``asyncio`` which pulls in ssl). A
+    # torch-based generator imports these lazily; if we replace ``socket.socket``
+    # with a plain function first, their ``class X(socket)`` fails with a cryptic
+    # ``TypeError: function() argument 'code' must be code, not str``. Binding the
+    # real base class now lets those classes build, while new socket() calls below
+    # still raise. (Without this, NO torch/ssl-importing generator can run.)
+    import asyncio  # noqa: F401
+    import ssl  # noqa: F401
+
     def _blocked(*_a: object, **_k: object) -> None:
         raise OSError("network access is disabled in the cascade generation sandbox")
 

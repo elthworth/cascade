@@ -44,10 +44,13 @@ uv run --project benchmarks cascade-benchmark CKPT out.json --suites gift-eval -
 
 ### Datasets / env vars
 
-- `CASCADE_BENCH_GIFTEVAL_DATASETS` — comma-separated `name` or `name/term` to
-  override the full GIFT-Eval config list.
-- `BOOM` / `CASCADE_BENCH_BOOM_PATH` — path/HF repo for the `Datadog/BOOM`
-  dataset; `CASCADE_BENCH_BOOM_DATASETS` to override its config list.
+- `GIFT_EVAL` — **required for GIFT-Eval.** Path to the downloaded gift-eval
+  benchmark data (gift-eval's own env var). `CASCADE_BENCH_GIFTEVAL_DATASETS`
+  (comma-separated `name` or `name/freq`) restricts the config list.
+- `BOOM` / `CASCADE_BENCH_BOOM_PATH` — **required for BOOM.** Path to the
+  downloaded [`Datadog/BOOM`](https://huggingface.co/datasets/Datadog/BOOM) data.
+  `CASCADE_BENCH_BOOM_DATASETS` restricts the config list;
+  `CASCADE_BENCH_BOOM_PROPERTIES` overrides the vendored manifest.
 - `CASCADE_BENCH_TIME_DATASET` (or `TIME_DATASET`) — **required to enable TIME.**
   Path to the [`Real-TSF/TIME`](https://huggingface.co/datasets/Real-TSF/TIME)
   data. `CASCADE_BENCH_TIME_DATASETS` optionally restricts the `name/freq`
@@ -73,24 +76,31 @@ fabricated number.
 
 ## How each suite plugs in
 
-- **GIFT-Eval / BOOM** — gluonts-interface, scored via gift-eval's `Dataset` +
-  `gluonts.model.evaluate_model` (shared loop in `suites/_common.py`). Both wrap
-  the checkpoint as a gluonts predictor (`predictor.py`).
+- **GIFT-Eval** — gluonts-interface. The benchmark's dataset list is *not* an
+  importable constant; gift-eval's reference runner (`notebooks/naive.ipynb`)
+  hardcodes two strings, so we embed those verbatim (`suites/gifteval.py`,
+  `SHORT_DATASETS` / `MED_LONG_DATASETS`) and replicate its term logic, scoring
+  via the same `evaluate_model` call (`suites/_common.py`).
+- **BOOM** — also gluonts/gift-eval, but its 2,807-config manifest (with each
+  config's fixed term) is *not* shipped in gift-eval. We vendor DataDog's
+  `boom_properties.json` (`data/`, Apache-2.0) and iterate it, one `Dataset` per
+  config with its designated term.
 - **TIME** — *not* gluonts; mirrors TIME's own `experiments/chronos2.py`: build
   `timebench.evaluation.data.Dataset`, feed quantile arrays (sample paths from
   the wrapper reduced to TIME's 9-level grid) to `save_window_predictions`, and
   read the resulting `metrics.npz` — TIME's own metric code, so numbers match the
   [leaderboard](https://huggingface.co/spaces/Real-TSF/TIME-leaderboard).
 
-## Status / TODO
+Both `GIFT_EVAL` and `BOOM` env vars must point at the respective downloaded
+benchmark data (gift-eval layout); each suite `skip`s cleanly when unset.
 
-**Smoke-test each suite once the env is built** (`--max-series 1`) — these
-runners are written against the upstream APIs but have not been executed end to
-end here. Likely adjustment points:
+## Status
 
-- GIFT-Eval / BOOM: the dataset-list symbols (`ALL_DATASETS`, `BOOM_DATASETS`)
-  and metric column names in `_common.py` may differ in the pinned gift-eval
-  commit — pass explicit `CASCADE_BENCH_*_DATASETS` to sidestep enumeration.
-- TIME: confirm the `metrics.npz` keys land under expected metric names (the
-  runner averages *every* array it finds, so it's robust to naming) and that
-  `Dataset(...).test_data.input` matches the installed `timebench` version.
+The GIFT-Eval, BOOM, and TIME runners are written against the upstream APIs as
+verified from their source at the pinned commits (gift-eval `naive.ipynb` +
+`data.py`; DataDog `boom_properties.json`; TIME `chronos2.py` + `saver.py`).
+They have **not been executed end to end here** (the env isn't installed and the
+benchmarks pull GB-scale data), so **smoke-test each with `--max-series 1`**
+after `uv sync --project benchmarks`. The most likely thing to need a refresh is
+the embedded GIFT-Eval list / vendored BOOM manifest if you bump the pinned
+commits.

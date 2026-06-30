@@ -124,6 +124,11 @@ def main(argv: list[str] | None = None) -> int:
         cfg.netuid, cfg.storage.manifest_bucket, cfg.storage.hub_registry_url,
         "remote" if remote_hosts else "local",
     )
+    # bittensor's logging machine silences all other loggers on import; restore
+    # cascade.* levels so the run-loop's progress logs stay visible.
+    from ..shared.logging_util import restore_cascade_logging
+
+    restore_cascade_logging(args.log_level)
     runner.run_forever(client, max_challengers=args.max_challengers)
     return 0
 

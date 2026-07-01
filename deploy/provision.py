@@ -35,6 +35,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -367,6 +368,19 @@ def _run_cli(argv: list[str], timeout: float = 120.0) -> subprocess.CompletedPro
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
 
 
+def _default_lium_bin() -> str:
+    """Resolve the ``lium`` binary: alongside the running Python (venv), then PATH.
+
+    Running under ``.venv/bin/python`` does NOT put ``.venv/bin`` on ``$PATH``, so a
+    bare ``lium`` lookup misses a venv-installed CLI. Prefer the sibling of the
+    current interpreter.
+    """
+    sibling = Path(sys.executable).with_name("lium")
+    if sibling.exists():
+        return str(sibling)
+    return shutil.which("lium") or "lium"
+
+
 def _spawn_cli(argv: list[str]) -> subprocess.Popen:
     """Fire-and-forget a CLI command (e.g. ``lium up``, which attaches/streams).
 
@@ -404,7 +418,7 @@ class LiumProvider:
     """
 
     name: str = "lium"
-    bin: str = "lium"
+    bin: str = field(default_factory=_default_lium_bin)
     poll_interval: float = POD_POLL_INTERVAL
     _run: Callable[[list[str]], subprocess.CompletedProcess] | None = field(default=None, repr=False)
     _spawn: Callable[[list[str]], object] | None = field(default=None, repr=False)
@@ -412,7 +426,14 @@ class LiumProvider:
     _now: Callable[[], float] = field(default=time.monotonic, repr=False)
 
     def _cli(self, args: list[str]) -> subprocess.CompletedProcess:
-        proc = (self._run or _run_cli)([self.bin, *args])
+        try:
+            proc = (self._run or _run_cli)([self.bin, *args])
+        except FileNotFoundError as e:
+            # A missing binary is a config error, not "no capacity" — surface it
+            # loudly instead of silently falling through to another provider.
+            raise ProvisionError(
+                f"lium CLI not found at {self.bin!r}; install it (pip install lium.io)"
+            ) from e
         if proc.returncode != 0:
             raise ProvisionError(
                 f"`{self.bin} {' '.join(args)}` failed (rc={proc.returncode}): "
@@ -468,8 +489,11 @@ class LiumProvider:
         return lium_pod_address(pod) if pod else None
 
     def terminate(self, pod_id: str) -> None:
+        # `lium rm <target>` takes a positional target and does NOT prompt — there
+        # is no --yes flag (verified against the installed CLI). Passing one would
+        # error and we'd mistake a live pod for a terminated one, i.e. leak it.
         try:
-            self._cli(["rm", pod_id, "--yes"])
+            self._cli(["rm", pod_id])
             log.info("lium rm %s", pod_id)
         except ProvisionError as e:
             # Idempotent: an already-gone pod is success, not a leak.

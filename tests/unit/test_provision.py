@@ -15,6 +15,7 @@ import pytest
 from deploy.provision import (
     DEFAULT_FORWARD_ENV,
     LaunchSpec,
+    LiumProvider,
     PodAddress,
     ProvisionError,
     RenderOpts,
@@ -139,6 +140,44 @@ def test_build_providers_rejects_unknown_name():
 def test_build_providers_instantiates_in_order():
     provs = build_providers(["shadeform", "lium"])
     assert [p.name for p in provs] == ["shadeform", "lium"]
+
+
+class _RecordingCli:
+    """Captures the argv `lium` would be called with (no subprocess)."""
+
+    def __init__(self):
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv):
+        self.calls.append(argv)
+        import types
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+
+def test_lium_terminate_uses_positional_target_without_yes_flag():
+    # `lium rm` has no --yes flag; passing one would error and we'd leak the pod.
+    cli = _RecordingCli()
+    LiumProvider(bin="lium", _run=cli).terminate("cascade-pod-0")
+    assert cli.calls == [["lium", "rm", "cascade-pod-0"]]
+
+
+def test_lium_launch_injects_ssh_pubkey_env_and_port():
+    spawned: list[list[str]] = []
+
+    def _run(argv):
+        import types
+        # `ls` returns executors; other calls are irrelevant here
+        out = '[{"id": "exec-1"}, {"id": "exec-2"}]' if "ls" in argv else ""
+        return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+    prov = LiumProvider(bin="lium", _run=_run, _spawn=lambda argv: spawned.append(argv))
+    names = prov.launch(_spec(count=2))
+    assert names == ["cascade-pod-0", "cascade-pod-1"]
+    up = spawned[0]
+    assert up[:3] == ["lium", "up", "exec-1"]
+    assert "--image" in up and IMG in up
+    assert "-e" in up and f"SSH_PUBKEY={_spec().ssh_pubkey}" in up
+    assert up[up.index("--internal-ports") + 1] == "22"
 
 
 # ── hosts.toml templating ────────────────────────────────────────────────────

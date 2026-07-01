@@ -1,74 +1,70 @@
-"""Shared gluonts evaluation loop used by the GIFT-Eval and BOOM runners.
+"""Shared gluonts scoring for the GIFT-Eval and BOOM runners.
 
-Both benchmarks expose their datasets through gift-eval's ``Dataset`` class
-(gluonts-interface), so scoring is the same: build a
-:class:`~cascade_benchmark.predictor.CheckpointPredictor` sized to each
-dataset's prediction length, run gluonts' evaluator, and average the canonical
-metrics across datasets. We report CRPS (= MeanWeightedSumQuantileLoss, the
-GIFT-Eval headline metric) and MASE — the same two cascade scores in-protocol,
-so the numbers are directly relatable.
+Both expose datasets through gift-eval's ``Dataset`` class, so scoring one
+config is identical and matches gift-eval's reference runner
+(``notebooks/naive.ipynb``): the same ``evaluate_model`` call with seasonality
+from the dataset frequency. We return the per-config MASE / MAE / CRPS; the
+cross-dataset aggregation (Seasonal-Naive normalized shifted-geomean) lives in
+``cascade_benchmark.aggregate`` so it matches the official leaderboards.
 """
 
 from __future__ import annotations
 
-import numpy as np
-
-from ..predictor import CheckpointPredictor
-
-# 9-level grid — matches GIFT-Eval and cascade's own DEFAULT_QUANTILE_LEVELS.
+# 9-level grid — matches GIFT-Eval and cascade's DEFAULT_QUANTILE_LEVELS.
 QUANTILE_LEVELS = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 
 
-def evaluate_datasets(
-    datasets,
-    checkpoint_dir: str,
-    *,
-    num_samples: int,
-    device: str,
-) -> tuple[dict, int]:
-    """Score the checkpoint on an iterable of gift-eval ``Dataset`` objects.
-
-    Returns ``(metrics, n_datasets)`` where ``metrics`` holds the cross-dataset
-    mean CRPS and MASE. A dataset that errors is skipped (logged to the per-suite
-    detail by the caller via the returned count) rather than aborting the sweep.
+def build_dataset(name: str, term: str, *, storage_env_var: str = "GIFT_EVAL"):
+    """Construct a gift-eval ``Dataset`` following the reference runner's
+    ``to_univariate`` rule (multivariate series split into univariate, matching
+    the leaderboard). Returns ``None`` if it fails to load so the caller can
+    skip it rather than abort the sweep.
     """
-    from gluonts.ev.metrics import MASE, MeanWeightedSumQuantileLoss
+    from gift_eval.data import Dataset
+
+    try:
+        probe = Dataset(name=name, term=term, to_univariate=False, storage_env_var=storage_env_var)
+        to_univariate = probe.target_dim != 1
+        return Dataset(
+            name=name, term=term, to_univariate=to_univariate, storage_env_var=storage_env_var
+        )
+    except Exception:  # noqa: BLE001 — unknown/invalid (name, term) combo → skip
+        return None
+
+
+def score_dataset(ds, checkpoint_dir: str, *, num_samples: int, device: str) -> dict:
+    """Score the checkpoint on one ``Dataset`` and return ``{MASE, MAE, CRPS}``.
+
+    The ``evaluate_model`` call mirrors gift-eval's reference runner exactly
+    (kwargs + seasonality), so the per-config numbers are leaderboard-faithful.
+    Column names ``MASE[0.5]`` / ``MAE[0.5]`` / ``mean_weighted_sum_quantile_loss``
+    are verified against ``naive.ipynb``.
+    """
+    from gluonts.ev.metrics import MAE, MASE, MeanWeightedSumQuantileLoss
     from gluonts.model import evaluate_model
+    from gluonts.time_feature import get_seasonality
 
-    metrics = [
-        MASE(),
-        MeanWeightedSumQuantileLoss(quantile_levels=list(QUANTILE_LEVELS)),
-    ]
+    from ..predictor import CheckpointPredictor
 
-    crps_vals: list[float] = []
-    mase_vals: list[float] = []
-    used = 0
-    for ds in datasets:
-        predictor = CheckpointPredictor(
-            checkpoint_dir,
-            prediction_length=ds.prediction_length,
-            num_samples=num_samples,
-            device=device,
-        )
-        res = evaluate_model(
-            predictor,
-            test_data=ds.test_data,
-            metrics=metrics,
-            axis=None,
-            batch_size=1024,
-            seasonality=getattr(ds, "seasonality", 1),
-        )
-        # evaluate_model returns a one-row frame; pull the scalar columns.
-        crps = float(np.asarray(res["mean_weighted_sum_quantile_loss"]).reshape(-1)[0])
-        mase = float(np.asarray(res["MASE[0.5]"] if "MASE[0.5]" in res else res["MASE"]).reshape(-1)[0])
-        if np.isfinite(crps):
-            crps_vals.append(crps)
-        if np.isfinite(mase):
-            mase_vals.append(mase)
-        used += 1
-
-    out = {
-        "crps": float(np.mean(crps_vals)) if crps_vals else float("nan"),
-        "mase": float(np.mean(mase_vals)) if mase_vals else float("nan"),
+    season_length = get_seasonality(ds.freq)
+    predictor = CheckpointPredictor(
+        checkpoint_dir,
+        prediction_length=ds.prediction_length,
+        num_samples=num_samples,
+        device=device,
+    )
+    res = evaluate_model(
+        predictor,
+        test_data=ds.test_data,
+        metrics=[MASE(), MAE(), MeanWeightedSumQuantileLoss(quantile_levels=list(QUANTILE_LEVELS))],
+        batch_size=512,
+        axis=None,
+        mask_invalid_label=True,
+        allow_nan_forecast=False,
+        seasonality=season_length,
+    )
+    return {
+        "MASE": float(res["MASE[0.5]"][0]),
+        "MAE": float(res["MAE[0.5]"][0]),
+        "CRPS": float(res["mean_weighted_sum_quantile_loss"][0]),
     }
-    return out, used

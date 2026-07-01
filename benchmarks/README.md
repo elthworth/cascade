@@ -44,14 +44,18 @@ uv run --project benchmarks cascade-benchmark CKPT out.json --suites gift-eval -
 
 ### Datasets / env vars
 
-- `CASCADE_BENCH_GIFTEVAL_DATASETS` — comma-separated `name` or `name/term` to
-  override the full GIFT-Eval config list.
-- `BOOM` / `CASCADE_BENCH_BOOM_PATH` — path/HF repo for the `Datadog/BOOM`
-  dataset; `CASCADE_BENCH_BOOM_DATASETS` to override its config list.
-- `CASCADE_BENCH_TIME_DATASETS` — **required to enable TIME.** The TIME harness
-  (arXiv:2602.12147) isn't pinned here yet, so the `time` suite reports
-  `skipped` until you add its loader and set this — see
-  `cascade_benchmark/suites/time_bench.py`.
+- `GIFT_EVAL` — **required for GIFT-Eval.** Path to the downloaded gift-eval
+  benchmark data (gift-eval's own env var). `CASCADE_BENCH_GIFTEVAL_DATASETS`
+  (comma-separated `name` or `name/freq`) restricts the config list.
+- `BOOM` / `CASCADE_BENCH_BOOM_PATH` — **required for BOOM.** Path to the
+  downloaded [`Datadog/BOOM`](https://huggingface.co/datasets/Datadog/BOOM) data.
+  `CASCADE_BENCH_BOOM_DATASETS` restricts the config list;
+  `CASCADE_BENCH_BOOM_PROPERTIES` overrides the vendored manifest.
+- `CASCADE_BENCH_TIME_DATASET` (or `TIME_DATASET`) — **required to enable TIME.**
+  Path to the [`Real-TSF/TIME`](https://huggingface.co/datasets/Real-TSF/TIME)
+  data. `CASCADE_BENCH_TIME_DATASETS` optionally restricts the `name/freq`
+  configs (default: all of TIME's bundled config). Without it the `time` suite
+  reports `skipped`.
 
 ## Output shape
 
@@ -70,10 +74,55 @@ uv run --project benchmarks cascade-benchmark CKPT out.json --suites gift-eval -
 the others, and a skipped/errored suite is logged as such rather than emitting a
 fabricated number.
 
-## Status / TODO
+## How each suite plugs in
 
-- GIFT-Eval & BOOM runners follow gift-eval's documented `Dataset` +
-  `gluonts.model.evaluate_model` interface. **Smoke-test once the env is built**
-  (`--max-series`) and adjust the dataset-list symbols (`ALL_DATASETS`,
-  `BOOM_DATASETS`) if the pinned gift-eval commit names them differently.
-- TIME is a clearly-marked stub pending confirmation of its public loader.
+- **GIFT-Eval** — gluonts-interface. The benchmark's dataset list is *not* an
+  importable constant; gift-eval's reference runner (`notebooks/naive.ipynb`)
+  hardcodes two strings, so we embed those verbatim (`suites/gifteval.py`,
+  `SHORT_DATASETS` / `MED_LONG_DATASETS`) and replicate its term logic, scoring
+  via the same `evaluate_model` call (`suites/_common.py`).
+- **BOOM** — also gluonts/gift-eval, but its 2,807-config manifest (with each
+  config's fixed term) is *not* shipped in gift-eval. We vendor DataDog's
+  `boom_properties.json` (`data/`, Apache-2.0) and iterate it, one `Dataset` per
+  config with its designated term.
+- **TIME** — *not* gluonts; mirrors TIME's own `experiments/chronos2.py`: build
+  `timebench.evaluation.data.Dataset`, feed quantile arrays (sample paths from
+  the wrapper reduced to TIME's 9-level grid) to `save_window_predictions`, and
+  read the resulting `metrics.npz` — TIME's own metric code, so numbers match the
+  [leaderboard](https://huggingface.co/spaces/Real-TSF/TIME-leaderboard).
+
+Both `GIFT_EVAL` and `BOOM` env vars must point at the respective downloaded
+benchmark data (gift-eval layout); each suite `skip`s cleanly when unset.
+
+### Aggregation (the headline number)
+
+GIFT-Eval and BOOM are **not** a plain mean of per-dataset metrics. The headline
+is the official one (`aggregate.py`, a faithful port of DataDog's
+`boom/utils/leaderboard.py`, the same methodology GIFT-Eval uses):
+
+> shifted geometric mean, across datasets, of each metric **normalized by the
+> Seasonal-Naive baseline** — with the zero-inflated split (datasets where the
+> baseline MASE is 0 use MAE instead) and BOOM's `LOW_VARIANCE_DATASETS`
+> exclusion.
+
+We normalize against the **vendored official Seasonal-Naive results** (`data/`,
+from the upstream repos), keyed `name/freq/term`. GIFT-Eval keys are constructed
+to match all 97 official baseline keys exactly; BOOM is driven directly off the
+baseline keys. So `metrics.crps` / `metrics.mase` are leaderboard-comparable
+(values near 1.0 ≈ Seasonal-Naive; lower is better). `crps_zero` / `mae_zero`
+report the zero-inflated pool.
+
+## Status
+
+Data loading, per-config metrics, and aggregation are all written against — and
+verified from — upstream source at the pinned commits (gift-eval `naive.ipynb` +
+`data.py`; DataDog `boom/utils/leaderboard.py` + vendored Seasonal-Naive
+results; TIME `chronos2.py` + `saver.py`). The aggregation math and GIFT-Eval/
+BOOM key-alignment are unit-tested (`tests/test_aggregate.py`; 97/97 GIFT-Eval
+keys match the baseline, model==baseline normalizes to 1.0).
+
+What is **not** yet exercised: the actual model inference path
+(`CheckpointPredictor` → gluonts `evaluate_model`), because that needs the
+installed env + GB-scale data. **Smoke-test with `--max-series 1`** after
+`uv sync --project benchmarks`. Refresh the embedded GIFT-Eval list / vendored
+baselines if you bump the pinned commits.

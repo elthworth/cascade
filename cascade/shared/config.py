@@ -172,6 +172,14 @@ class TrainingContractConfig:
     # ran the same SKU); empty ⇒ require only that king and challenger match each
     # other when both report a gpu_name. Folded into contract_digest.
     expected_gpu: str = ""
+    # Pinned training-runtime image for byte-exact re-derivation: the digest of
+    # the container image (torch/CUDA/cuDNN stack) every FINAL run must execute
+    # in. Accepts a full digest-pinned ref (``…@sha256:<64hex>``) or a bare
+    # ``sha256:<64hex>``. When non-empty, the trainer/worker refuses a final run
+    # unless its runtime reports the same digest (CASCADE_TRAIN_IMAGE_DIGEST,
+    # injected at pod launch). Folded into contract_digest, so re-pinning the
+    # image is a new contract. Empty ⇒ unpinned (no check).
+    train_image_digest: str = ""
     # Extra model sizes trained alongside the base (primary) size in the final
     # stage. Empty ⇒ single-size rounds (the legacy behaviour). Folded into
     # contract_digest, so a validator's contract gate covers every size at once.
@@ -660,6 +668,7 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             max_train_seconds=int(t["max_train_seconds"]),
             corpus_mode=validate_corpus_mode(str(t.get("corpus_mode", "stream_cpu"))),
             expected_gpu=str(t.get("expected_gpu", "")),
+            train_image_digest=str(t.get("train_image_digest", "")),
             extra_sizes=extra_sizes,
         ),
         round=RoundConfig(

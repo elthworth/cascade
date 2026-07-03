@@ -100,6 +100,15 @@ corpus_mode = "stream_cpu"
 # the validator then rejects any manifest whose entries weren't trained on it.
 # Empty = only require king and challenger to match each other.
 expected_gpu = ""
+# Pin the training-runtime IMAGE for byte-exact re-derivation. The worker image
+# (deploy/Dockerfile) fixes the torch/CUDA/cuDNN stack; this pins WHICH build of
+# it every FINAL run must execute in. Set it to the digest-pinned ref you deploy
+# (e.g. "ghcr.io/tensorlink-ai/cascade-worker@sha256:<64hex>", or the bare
+# "sha256:<64hex>") and inject the same digest into each pod/trainer env as
+# CASCADE_TRAIN_IMAGE_DIGEST at launch — the trainer/worker then REFUSES a final
+# run whose runtime doesn't match. Folded into contract_digest, so re-pinning
+# the image starts a new contract. Empty = unpinned (no runtime check).
+train_image_digest = ""
 
 # Extra final-stage model sizes. The [training] block above is the PRIMARY size
 # (the small rung the cheap heat screens on); each [[training.sizes]] below is

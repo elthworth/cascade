@@ -103,6 +103,12 @@ corpus_mode = "stream_gpu"   # TESTNET: base_generator imports torch (gpytorch G
 # the validator then rejects any manifest whose entries weren't trained on it.
 # Empty = only require king and challenger to match each other.
 expected_gpu = ""
+# Pin the training-runtime IMAGE for byte-exact re-derivation (see chain.toml).
+# Set to the digest-pinned worker-image ref (…@sha256:<64hex>) or a bare
+# sha256:<64hex>, and inject the same digest as CASCADE_TRAIN_IMAGE_DIGEST into
+# each pod env at launch; final runs then refuse a mismatched runtime. Folded
+# into contract_digest. Empty = unpinned — fine for testnet iteration.
+train_image_digest = ""
 
 # Extra final-stage sizes (see chain.toml for the full explanation). The throne
 # is decided on the COMBINED score across all sizes.

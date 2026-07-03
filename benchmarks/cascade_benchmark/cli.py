@@ -42,6 +42,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--device", default="cpu")
     p.add_argument(
+        "--gifteval-datasets",
+        default=None,
+        help="comma/space-separated gift-eval config subset (e.g. the pinned "
+        "consensus-gate subset); sets CASCADE_BENCH_GIFTEVAL_DATASETS. Omit to "
+        "run the full 97-config battery.",
+    )
+    p.add_argument(
         "--batch-size",
         type=int,
         default=64,
@@ -79,6 +86,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     import os
+
+    if args.gifteval_datasets:
+        os.environ["CASCADE_BENCH_GIFTEVAL_DATASETS"] = args.gifteval_datasets
 
     from .datasets import DATASETS, apply_env, ensure_datasets, recorded_revision
 

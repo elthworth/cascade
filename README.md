@@ -215,6 +215,25 @@ S3. Install the extra (`pip install -e '.[hippius]'`) and set the env
 credentials (`HIPPIUS_S3_ACCESS_KEY` / `HIPPIUS_S3_SECRET_KEY`, and a Hub token
 `HIPPIUS_HUB_TOKEN` or `HIPPIUS_HUB_USERNAME` + `HIPPIUS_HUB_PASSWORD`).
 
+**Public round receipts.** After each round's weights are set, the validator
+publishes a signed `RoundReceipt` to the manifest bucket — the full public
+record of the round (chain context, the trainer's manifest verbatim, the
+participant set, every per-window score, the KOTH verdict, and the weight
+vector), so a third party can re-derive the owner's work without trusting it.
+The layout mirrors the manifests:
+
+```
+s3://<manifest_bucket>/manifests/round-<id>.json   the trainer's signed manifest
+s3://<manifest_bucket>/manifests/latest.json       pointer to the newest manifest
+s3://<manifest_bucket>/receipts/round-<id>.json    the validator's signed receipt
+s3://<manifest_bucket>/receipts/latest.json        pointer to the newest receipt
+```
+
+`<id>` is the round id (the base seed derived from the epoch-boundary block
+hash). A round the validator *rejected* still gets a receipt
+(`"status": "rejected"`) carrying the gate's reason. Verify one with
+`cascade-audit latest` — see `docs/AUDIT.md`.
+
 Before launching, set `chain.toml [subnet] netuid`, `[training] base_arch_digest`
 (sha256 of the frozen base architecture), `[manifest] trainer_hotkey`, `[eval]
 window_pool` (the held-out pool's Hub `repo@digest`), and `[storage]` endpoints.

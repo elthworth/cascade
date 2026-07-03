@@ -441,6 +441,37 @@ def read_latest_manifest(store: S3Store) -> str:
     return store.get_text(MANIFEST_LATEST_KEY)
 
 
+RECEIPT_LATEST_KEY = "receipts/latest.json"
+
+
+def receipt_round_key(round_id: str) -> str:
+    return f"receipts/round-{round_id}.json"
+
+
+def publish_receipt(store: S3Store, receipt_text: str, round_id: str) -> str:
+    """Write the round receipt and update the ``receipts/latest.json`` pointer.
+
+    Mirrors :func:`publish_manifest` — the validator publishes its signed
+    :class:`cascade.shared.receipt.RoundReceipt` here after weights are set, and
+    auditors read :data:`RECEIPT_LATEST_KEY` (or a specific round's key).
+    Returns the per-round key.
+    """
+    key = receipt_round_key(round_id)
+    store.put_text(key, receipt_text, content_type="application/json")
+    store.put_text(RECEIPT_LATEST_KEY, receipt_text, content_type="application/json")
+    return key
+
+
+def read_receipt(store: S3Store, round_id: str) -> str:
+    """Read one round's receipt JSON by round id."""
+    return store.get_text(receipt_round_key(round_id))
+
+
+def read_latest_receipt(store: S3Store) -> str:
+    """Read the current receipt JSON from ``receipts/latest.json``."""
+    return store.get_text(RECEIPT_LATEST_KEY)
+
+
 def log_key(round_id: str, role: str) -> str:
     return f"logs/round-{round_id}/{role}.jsonl"
 

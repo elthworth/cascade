@@ -53,6 +53,21 @@ def equal_share_vector(
     return weights
 
 
+def seed_from_block_hash(block_hash: str) -> int:
+    """A round base seed from a chain block hash: blake2b of the hex digest as a
+    64-bit int. Pure — the audit CLI recomputes a receipt's ``base_seed`` from
+    its recorded ``epoch_block_hash`` without a chain connection; the live
+    :meth:`ChainClient.block_seed` goes through the same function so the two can
+    never diverge.
+    """
+    import hashlib
+
+    digest = str(block_hash).lower().removeprefix("0x")
+    return int.from_bytes(
+        hashlib.blake2b(digest.encode(), digest_size=8).digest(), "big", signed=False
+    )
+
+
 def _import_bittensor():
     try:
         import bittensor  # type: ignore
@@ -141,25 +156,24 @@ class ChainClient:
         except Exception as e:  # noqa: BLE001
             raise ChainError(f"get_current_block_failed: {e}") from e
 
+    def block_hash(self, block: int | None = None) -> str:
+        """The chain block hash at ``block`` (current block when None)."""
+        sub = self.subtensor()
+        try:
+            blk = int(self.current_block()) if block is None else int(block)
+            return str(sub.get_block_hash(blk))
+        except Exception as e:  # noqa: BLE001
+            raise ChainError(f"get_block_hash_failed: {e}") from e
+
     def block_seed(self, block: int | None = None) -> int:
         """The round base seed: the chain block hash as a 64-bit int.
 
         Both the trainer and every validator derive their per-round seeds from
         this, so a re-derived run reproduces byte-for-byte. Uses the current
-        block when ``block`` is None.
+        block when ``block`` is None. The hash→seed mapping is the pure
+        :func:`seed_from_block_hash`, which auditors reuse offline.
         """
-        sub = self.subtensor()
-        try:
-            blk = int(self.current_block()) if block is None else int(block)
-            h = sub.get_block_hash(blk)
-        except Exception as e:  # noqa: BLE001
-            raise ChainError(f"get_block_hash_failed: {e}") from e
-        digest = str(h).lower().removeprefix("0x")
-        import hashlib
-
-        return int.from_bytes(
-            hashlib.blake2b(digest.encode(), digest_size=8).digest(), "big", signed=False
-        )
+        return seed_from_block_hash(self.block_hash(block))
 
     def highest_incentive_hotkey(self) -> str | None:
         """The reigning king's hotkey: the UID with the highest incentive on the

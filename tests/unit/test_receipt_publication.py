@@ -281,9 +281,11 @@ def test_receipt_failure_never_raises(cfg, monkeypatch):
 class _FakeS3Store:
     def __init__(self):
         self.objects: dict[str, str] = {}
+        self.acls: dict[str, str | None] = {}
 
-    def put_text(self, key, text, *, content_type="text/plain"):
+    def put_text(self, key, text, *, content_type="text/plain", acl=None):
         self.objects[key] = text
+        self.acls[key] = acl
 
     def get_text(self, key):
         return self.objects[key]
@@ -293,6 +295,9 @@ def test_publish_and_read_receipt_keys():
     store = _FakeS3Store()
     key = hippius.publish_receipt(store, '{"round_id":"42"}', "42")
     assert key == "receipts/round-42.json"
+    # receipts are the audit-facing artefact: written world-readable
+    assert store.acls[key] == "public-read"
+    assert store.acls["receipts/latest.json"] == "public-read"
     assert hippius.read_receipt(store, "42") == '{"round_id":"42"}'
     assert hippius.read_latest_receipt(store) == '{"round_id":"42"}'
     # a second round moves latest but keeps the old round readable

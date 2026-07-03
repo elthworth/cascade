@@ -44,7 +44,7 @@ max_channels         = 1         # per-series variates. 1 = univariate (generato
 # integers and base_arch_digest to that checkpoint's config.json before launch.
 base_arch          = "toto2"
 arch_preset        = "toto2-4m"
-base_arch_digest   = "7c16aedfbc624683b7e06b8aa8b882baab09e61b23a71dd1bf1cb72d1bd4abf5"  # recomputed for the CPM/Toto-2.0 arch (`cascade-trainer --offline`)
+base_arch_digest   = "95a8141d1909e38fd1369c22968e8881f3801fb9915321534b36a8cc9d977747"  # recomputed for the CPM/Toto-2.0 arch (`cascade-trainer --offline`)
 # architecture (head_dim fixed at 64 across the Toto2 family; patch_size 32)
 d_model            = 256
 num_layers         = 4

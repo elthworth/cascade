@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+import numpy as np
+
 from .bootstrap import paired_bootstrap_lcb_aggregated
 from .gift_gate import GiftGateResult
 from .scoring import WindowScore, global_geomean, stack_components
@@ -42,6 +44,12 @@ class KothParams:
             ramps from start to end.
         min_windows: below this many common eval windows, no decision is made
             (the round is inconclusive; the king holds).
+        min_clusters: below this many distinct window clusters (upstream feeds,
+            from pool metadata ``source``), no decision is made. Raw window
+            count overstates the evidence when the windows come from a handful
+            of correlated feeds; this is the breadth floor. ``0`` disables it
+            (and pools without ``source`` metadata are unaffected — every
+            window is then its own cluster).
         bootstrap_B: bootstrap resamples.
         bootstrap_alpha: one-sided LCB level.
         dethrone_cp: consecutive round wins required to dethrone.
@@ -54,6 +62,7 @@ class KothParams:
     bootstrap_B: int
     bootstrap_alpha: float
     dethrone_cp: int
+    min_clusters: int = 0
     # Public-benchmark no-regression gate (see :mod:`.gift_gate`). Off by
     # default; ``gift_gate_tolerance`` is the relative slack the challenger may
     # be worse by on GIFT-Eval, ``gift_gate_min_configs`` the floor of shared
@@ -96,6 +105,18 @@ class RoundResult:
         gift_gate_passed: whether the gate passed, when it ran (``None``
             otherwise). Under ``enforce`` a False here has already been folded
             into ``challenger_wins_round``; under ``shadow`` it is logged only.
+        n_clusters: distinct window clusters (upstream feeds) behind the
+            verdict — the honest effective sample size.
+        win_rate: fraction of windows where the challenger's per-window
+            geomean beats the king's. Diagnostic (shadow) only: 0.5 is noise;
+            a significant LCB with win_rate near 0.5 means rare-but-big wins.
+        wilcoxon_p: Wilcoxon signed-rank p-value on the paired per-window
+            geomean differences (``None`` when scipy is unavailable or the
+            test is degenerate). Diagnostic (shadow) only — the LCB-vs-margin
+            rule decides; this monitors agreement of a rank-based view.
+        per_domain_win_rate: ``{domain: (win_rate, n_windows)}``. A sign flip
+            across domains means pool composition is deciding rounds — the
+            "stop aggregating" tripwire, logged for observability.
     """
 
     challenger_wins_round: bool
@@ -107,6 +128,62 @@ class RoundResult:
     inconclusive: bool
     gift_lcb: float | None = None
     gift_gate_passed: bool | None = None
+    n_clusters: int = 0
+    win_rate: float | None = None
+    wilcoxon_p: float | None = None
+    per_domain_win_rate: dict | None = None
+
+
+def _window_clusters(scores: list[WindowScore]) -> tuple[list, int]:
+    """Cluster labels for the paired bootstrap, one per (window, channel) row.
+
+    The cluster key is the upstream feed id (pool metadata ``source``) when
+    present; rows without one are their own singleton cluster, which degrades
+    exactly to the classic per-window bootstrap for legacy pools.
+    """
+    labels: list = []
+    for i, s in enumerate(scores):
+        labels.append(s.source if s.source else f"__row{i}")
+    return labels, len(set(labels))
+
+
+def _per_window_geomeans(scores: list[WindowScore]) -> np.ndarray:
+    """Per-window geomean(WQL, MASE) — the scalar behind the shadow
+    diagnostics only; the decision LCB uses the aggregate-then-divide form."""
+    g = np.empty(len(scores))
+    for i, s in enumerate(scores):
+        wql = 2.0 * float(np.mean(s.qloss_per_q)) / max(abs(s.abs_target), 1e-9)
+        g[i] = np.sqrt(max(wql, 1e-12) * max(s.mase, 1e-12))
+    return g
+
+
+def _shadow_diagnostics(
+    king_scores: list[WindowScore], chal_scores: list[WindowScore]
+) -> tuple[float | None, float | None, dict | None]:
+    """(win_rate, wilcoxon_p, per_domain_win_rate) — logged, never gating."""
+    if not king_scores:
+        return None, None, None
+    g_king = _per_window_geomeans(king_scores)
+    g_chal = _per_window_geomeans(chal_scores)
+    wins = g_chal < g_king
+    win_rate = float(wins.mean())
+
+    wilcoxon_p: float | None = None
+    diffs = g_king - g_chal
+    if np.any(diffs != 0.0) and len(diffs) >= 10:
+        try:
+            from scipy.stats import wilcoxon
+
+            wilcoxon_p = float(wilcoxon(diffs, zero_method="wilcox").pvalue)
+        except Exception:  # noqa: BLE001 — a diagnostic must never fail a round
+            wilcoxon_p = None
+
+    per_domain: dict[str, tuple[float, int]] = {}
+    domains = [s.domain or "unknown" for s in king_scores]
+    for dom in sorted(set(domains)):
+        mask = np.asarray([d == dom for d in domains])
+        per_domain[dom] = (float(wins[mask].mean()), int(mask.sum()))
+    return win_rate, wilcoxon_p, per_domain
 
 
 def evaluate_round(
@@ -126,8 +203,9 @@ def evaluate_round(
         )
     n = len(king_scores)
     margin = margin_for_tenure(params, king_tenure_rounds)
+    clusters, n_clusters = _window_clusters(king_scores)
 
-    if n < params.min_windows:
+    if n < params.min_windows or (params.min_clusters > 0 and n_clusters < params.min_clusters):
         return RoundResult(
             challenger_wins_round=False,
             lcb=float("nan"),
@@ -136,6 +214,7 @@ def evaluate_round(
             king_geomean=global_geomean(king_scores),
             chal_geomean=global_geomean(chal_scores),
             inconclusive=True,
+            n_clusters=n_clusters,
         )
 
     k_qloss, k_abs, k_mase = stack_components(king_scores)
@@ -146,7 +225,9 @@ def evaluate_round(
         alpha=params.bootstrap_alpha,
         B=params.bootstrap_B,
         seed=seed,
+        clusters=clusters,
     )
+    win_rate, wilcoxon_p, per_domain = _shadow_diagnostics(king_scores, chal_scores)
     return RoundResult(
         challenger_wins_round=bool(lcb >= margin),
         lcb=lcb,
@@ -155,6 +236,10 @@ def evaluate_round(
         king_geomean=global_geomean(king_scores),
         chal_geomean=global_geomean(chal_scores),
         inconclusive=False,
+        n_clusters=n_clusters,
+        win_rate=win_rate,
+        wilcoxon_p=wilcoxon_p,
+        per_domain_win_rate=per_domain,
     )
 
 

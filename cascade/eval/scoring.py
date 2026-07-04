@@ -46,6 +46,11 @@ class WindowScore:
         abs_target: ``sum_t |y_t|`` over the horizon — the denominator
             companion to ``qloss_per_q``.
         quantile_levels: grid used to produce ``qloss_per_q``.
+        domain: coarse bucket from pool metadata (``""`` when absent); drives
+            the per-domain diagnostics on the round verdict.
+        source: upstream feed id from pool metadata (``None`` when absent);
+            the cluster key for the KOTH cluster bootstrap — windows from one
+            feed are correlated, so they resample together.
     """
 
     series_id: str
@@ -54,6 +59,8 @@ class WindowScore:
     abs_target: float
     quantile_levels: tuple[float, ...] = DEFAULT_QUANTILE_LEVELS
     channel: int = 0
+    domain: str = ""
+    source: str | None = None
 
 
 def _resolve_seasonal_period(metadata: dict) -> int:
@@ -106,6 +113,7 @@ def score_forecaster_on_windows(
             )
             point = np.median(samples[0], axis=0)           # (H,)
             m = mase_one(point, tgt_c, hist_c, period)
+            src = w.metadata.get("source")
             out.append(
                 WindowScore(
                     series_id=w.series_id,
@@ -114,6 +122,8 @@ def score_forecaster_on_windows(
                     abs_target=float(abs_target[0]),
                     quantile_levels=q_tuple,
                     channel=c,
+                    domain=str(w.metadata.get("domain", "") or ""),
+                    source=str(src) if src else None,
                 )
             )
     return out

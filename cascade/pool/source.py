@@ -69,6 +69,11 @@ class HarvestedSeries:
             per-domain caps and provenance.
         seasonal_period: optional explicit override; if ``None`` it is derived
             from ``freq`` at build time.
+        source: optional upstream feed id (e.g. a tsbench-forge catalog id).
+            Written into pool ``metadata.json`` as the cluster key the KOTH
+            cluster bootstrap resamples — series from one feed are correlated,
+            so they must move together. ``None`` (the default) leaves each
+            series its own cluster.
         attrs: free-form provenance (lat/lon, article title, …).
     """
 
@@ -77,6 +82,7 @@ class HarvestedSeries:
     freq: str
     domain: str
     seasonal_period: int | None = None
+    source: str | None = None
     attrs: dict = field(default_factory=dict)
 
 

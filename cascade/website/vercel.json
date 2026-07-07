@@ -3,6 +3,11 @@
   "rewrites": [
     {
       "source": "/receipts/:path*",
+      "has": [{ "type": "host", "value": "testnet\\..*" }],
+      "destination": "https://s3.hippius.com/cascade-testnet-manifests/receipts/:path*"
+    },
+    {
+      "source": "/receipts/:path*",
       "destination": "https://s3.hippius.com/cascade-manifests/receipts/:path*"
     }
   ],

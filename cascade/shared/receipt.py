@@ -30,7 +30,7 @@ from dataclasses import asdict, dataclass
 
 from .manifest import TrainingManifest, dump_manifest, load_manifest
 
-RECEIPT_VERSION = 1
+RECEIPT_VERSION = 2
 RECEIPT_STATUSES = ("scored", "rejected")
 
 
@@ -62,9 +62,11 @@ class WindowScoreRecord:
     """A JSON-safe :class:`cascade.eval.scoring.WindowScore`.
 
     Carries the exact bootstrap inputs — per-quantile pinball sums, the
-    ``abs_target`` denominator companion, and MASE — so an auditor can feed the
-    recorded scores back into ``evaluate_round`` and reproduce the verdict
-    bit-for-bit without a GPU.
+    ``abs_target`` denominator companion, MASE, and the window's cluster key
+    (``source``, the upstream feed id) — so an auditor can feed the recorded
+    scores back into ``evaluate_round`` and reproduce the verdict bit-for-bit
+    without a GPU. ``source`` drives the cluster bootstrap; without it the
+    recomputed LCB would not match a verdict judged on a source-labeled pool.
     """
 
     series_id: str
@@ -73,6 +75,7 @@ class WindowScoreRecord:
     qloss_per_q: tuple[float, ...]
     abs_target: float
     quantile_levels: tuple[float, ...]
+    source: str | None = None
 
     @classmethod
     def from_score(cls, ws) -> WindowScoreRecord:
@@ -84,6 +87,7 @@ class WindowScoreRecord:
             qloss_per_q=tuple(float(q) for q in ws.qloss_per_q),
             abs_target=float(ws.abs_target),
             quantile_levels=tuple(float(q) for q in ws.quantile_levels),
+            source=(str(ws.source) if ws.source else None),
         )
 
     def to_score(self):
@@ -99,6 +103,7 @@ class WindowScoreRecord:
             qloss_per_q=np.asarray(self.qloss_per_q, dtype=np.float64),
             abs_target=self.abs_target,
             quantile_levels=self.quantile_levels,
+            source=self.source,
             channel=self.channel,
         )
 
@@ -364,6 +369,7 @@ def load_receipt(text: str) -> RoundReceipt:
                         qloss_per_q=tuple(float(q) for q in s["qloss_per_q"]),
                         abs_target=float(s["abs_target"]),
                         quantile_levels=tuple(float(q) for q in s["quantile_levels"]),
+                        source=(str(s["source"]) if s.get("source") else None),
                     )
                     for s in e["scores"]
                 ),

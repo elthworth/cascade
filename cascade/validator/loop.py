@@ -380,6 +380,16 @@ class ValidatorRunner:
             manifest.round_id, result.lcb, result.margin, result.challenger_wins_round,
             transition.note, self.state.king_hotkey, self.state.tenure_rounds,
         )
+        # Shadow diagnostics: never gate the verdict. A rank-based view that
+        # disagrees with the LCB, or a per-domain win-rate sign flip, means the
+        # pool composition is doing the deciding — alert-worthy, not decisive.
+        if result.win_rate is not None:
+            log.info(
+                "round=%s diag n_clusters=%d win_rate=%.3f wilcoxon_p=%s per_domain=%s",
+                manifest.round_id, result.n_clusters, result.win_rate,
+                f"{result.wilcoxon_p:.4g}" if result.wilcoxon_p is not None else "n/a",
+                {d: f"{wr:.2f}/n{n}" for d, (wr, n) in (result.per_domain_win_rate or {}).items()},
+            )
         return RoundOutcome(
             result=result, transition=transition, entry_scores=tuple(score_records),
             king_tenure_rounds=tenure_at_decision,

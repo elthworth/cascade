@@ -80,3 +80,56 @@ def test_aggregated_lcb_rejects_unpaired_windows():
     c_q, c_a, c_m = _components(50, 9, 0.5, 1)  # different abs_target
     with pytest.raises(ValueError):
         paired_bootstrap_lcb_aggregated(k_q, k_a, k_m, c_q, c_a, c_m, B=200, seed="s")
+
+
+def test_singleton_clusters_match_default_bootstrap():
+    rng = np.random.default_rng(7)
+    n, nq = 60, 9
+    k_q = rng.uniform(0.1, 1.0, size=(n, nq))
+    abs_t = rng.uniform(5.0, 10.0, size=n)
+    k_m = rng.uniform(0.5, 1.5, size=n)
+    c_q, c_m = k_q * 0.9, k_m * 0.9
+    base = paired_bootstrap_lcb_aggregated(k_q, abs_t, k_m, c_q, abs_t, c_m, B=500, seed="s")
+    singletons = paired_bootstrap_lcb_aggregated(
+        k_q, abs_t, k_m, c_q, abs_t, c_m, B=500, seed="s", clusters=list(range(n))
+    )
+    assert base == singletons
+
+
+def test_cluster_bootstrap_is_wider_under_cluster_correlation():
+    """Windows that move together must not be counted as independent: with a
+    strong per-cluster effect the cluster LCB sits below the i.i.d. LCB."""
+    rng = np.random.default_rng(11)
+    n_clusters, per = 8, 40
+    n = n_clusters * per
+    labels = [f"feed{i // per}" for i in range(n)]
+    k_q = rng.uniform(0.4, 0.6, size=(n, 9))
+    abs_t = rng.uniform(5.0, 10.0, size=n)
+    k_m = rng.uniform(0.9, 1.1, size=n)
+    # Challenger improvement varies BY CLUSTER (correlated), not by window.
+    effect = np.repeat(rng.uniform(0.7, 1.1, size=n_clusters), per)
+    c_q = k_q * effect[:, None]
+    c_m = k_m * effect
+    iid = paired_bootstrap_lcb_aggregated(k_q, abs_t, k_m, c_q, abs_t, c_m, B=2000, seed="s")
+    clustered = paired_bootstrap_lcb_aggregated(
+        k_q, abs_t, k_m, c_q, abs_t, c_m, B=2000, seed="s", clusters=labels
+    )
+    assert clustered < iid
+
+
+def test_cluster_bootstrap_deterministic_in_seed_and_labels():
+    rng = np.random.default_rng(3)
+    n = 40
+    k_q = rng.uniform(0.1, 1.0, size=(n, 9))
+    abs_t = rng.uniform(5.0, 10.0, size=n)
+    k_m = rng.uniform(0.5, 1.5, size=n)
+    # Heterogeneous improvement so the bag distribution isn't a point mass
+    # (a constant factor cancels in every bag, making all seeds agree).
+    factor = rng.uniform(0.6, 1.0, size=n)
+    c_q, c_m = k_q * factor[:, None], k_m * factor
+    labels = [f"s{i % 5}" for i in range(n)]
+    a = paired_bootstrap_lcb_aggregated(k_q, abs_t, k_m, c_q, abs_t, c_m, B=500, seed="x", clusters=labels)
+    b = paired_bootstrap_lcb_aggregated(k_q, abs_t, k_m, c_q, abs_t, c_m, B=500, seed="x", clusters=labels)
+    assert a == b
+    c = paired_bootstrap_lcb_aggregated(k_q, abs_t, k_m, c_q, abs_t, c_m, B=500, seed="y", clusters=labels)
+    assert a != c

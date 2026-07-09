@@ -184,6 +184,8 @@ def prepare_series(
         else get_seasonality(hs.freq)
     )
     metadata = {"freq": hs.freq, "seasonal_period": seasonal, "domain": hs.domain}
+    if hs.source:
+        metadata["source"] = hs.source
 
     values = cleaned.astype(np.float32)
     if values.shape[0] == 1:  # store univariate as 1-D; loader promotes to (1, L)

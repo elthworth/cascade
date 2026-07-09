@@ -185,6 +185,11 @@ win_margin_end       = 0.02      # equal to start; with margin_warmup_rounds = 0
                                  # is constant at this value regardless of tenure
 margin_warmup_rounds = 0         # 0 ⇒ no tenure warmup (flat margin)
 min_windows          = 200       # below this many common windows, no decision
+min_clusters         = 0         # below this many distinct window clusters (upstream feeds,
+                                 # pool metadata `source`), no decision. Windows from one feed
+                                 # are correlated, so raw window count overstates the evidence;
+                                 # raise to ~30 once the pool carries source labels
+                                 # (e.g. the tsbench_forge source). 0 = off.
 bootstrap_B          = 10000     # paired-bootstrap resamples
 bootstrap_alpha      = 0.05      # one-sided LCB level
 dethrone_cp          = 1         # consecutive round wins to take the throne (1 = single-round)

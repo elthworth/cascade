@@ -65,29 +65,76 @@ def paired_bootstrap_lcb(
     return float(np.quantile(boot_means, alpha))
 
 
-def _bag_geomeans(
+def cluster_codes(clusters: list | np.ndarray | None, n: int) -> np.ndarray:
+    """Map per-window cluster labels to dense integer codes ``(n,)``.
+
+    ``None`` means every window is its own cluster (the classic i.i.d.
+    bootstrap). Labels are grouped by value in first-appearance order, so the
+    coding — and therefore the bootstrap draw for a fixed seed — is
+    deterministic in the (already deterministic) window order.
+    """
+    if clusters is None:
+        return np.arange(n)
+    if len(clusters) != n:
+        raise ValueError(f"clusters length {len(clusters)} != n windows {n}")
+    codes: dict = {}
+    out = np.empty(n, dtype=np.int64)
+    for i, label in enumerate(clusters):
+        out[i] = codes.setdefault(label, len(codes))
+    return out
+
+
+def _cluster_sums(
     qloss_per_q: np.ndarray,
     abs_target: np.ndarray,
     mase: np.ndarray,
+    codes: np.ndarray,
+    n_clusters: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Per-cluster sufficient statistics for the bag metric.
+
+    The bag metric is built from sums (qloss / abs-target numerators and
+    denominators; log-MASE totals and counts), so a cluster resample only needs
+    each cluster's sums — no per-window indexing inside the bootstrap loop.
+    """
+    nq = qloss_per_q.shape[1]
+    qloss_c = np.zeros((n_clusters, nq))
+    for q in range(nq):
+        qloss_c[:, q] = np.bincount(codes, weights=qloss_per_q[:, q], minlength=n_clusters)
+    abs_c = np.bincount(codes, weights=abs_target, minlength=n_clusters)
+    logmase_c = np.bincount(
+        codes, weights=np.log(np.maximum(mase, 1e-9)), minlength=n_clusters
+    )
+    n_c = np.bincount(codes, minlength=n_clusters).astype(np.float64)
+    return qloss_c, abs_c, logmase_c, n_c
+
+
+def _bag_geomeans(
+    qloss_c: np.ndarray,
+    abs_c: np.ndarray,
+    logmase_c: np.ndarray,
+    n_c: np.ndarray,
     idx: np.ndarray,
     eps: float = 1e-9,
 ) -> np.ndarray:
-    """Per-bag geomean(MWSQL, mean MASE) under index resampling.
+    """Per-bag geomean(MWSQL, geomean MASE) under cluster resampling.
 
-    Each bag aggregates ``qloss_per_q`` and ``abs_target`` separately, divides
-    once (eps floor on the denominator), and geomeans with the bag's mean MASE.
+    Each bag draws clusters with replacement (``idx`` indexes clusters),
+    aggregates the MWSQL numerator/denominator separately, and divides once
+    (eps floor) — removing the per-window pathology of MWSQL. MASE is
+    aggregated as a *geometric* mean (log-space): per-window MASE differences
+    are heavy-tailed, and an arithmetic mean lets a single exploding window
+    dominate every bag it lands in, inflating the LCB's variance.
 
-    Shapes: qloss_per_q (N, num_q), abs_target (N,), mase (N,), idx (B, n).
+    Shapes: qloss_c (G, num_q), abs_c / logmase_c / n_c (G,), idx (B, g).
     Returns (B,) bag geomeans.
     """
-    qloss_bag = qloss_per_q[idx]                              # (B, n, num_q)
-    abs_bag = abs_target[idx]                                 # (B, n)
-    mase_bag = mase[idx]                                      # (B, n)
-    bag_qloss_sum = qloss_bag.sum(axis=1)                    # (B, num_q)
-    bag_abs_sum = np.maximum(abs_bag.sum(axis=1), eps)        # (B,)
+    bag_qloss_sum = qloss_c[idx].sum(axis=1)                  # (B, num_q)
+    bag_abs_sum = np.maximum(abs_c[idx].sum(axis=1), eps)     # (B,)
     per_q = 2.0 * bag_qloss_sum / bag_abs_sum[:, None]        # (B, num_q)
     bag_mwsql = per_q.mean(axis=1)                            # (B,)
-    bag_mase = mase_bag.mean(axis=1)                          # (B,)
+    bag_n = np.maximum(n_c[idx].sum(axis=1), 1.0)             # (B,)
+    bag_mase = np.exp(logmase_c[idx].sum(axis=1) / bag_n)     # (B,) geomean MASE
     return np.sqrt(np.maximum(bag_mwsql, 1e-12) * np.maximum(bag_mase, 1e-12))
 
 
@@ -101,13 +148,22 @@ def paired_bootstrap_lcb_aggregated(
     alpha: float = 0.05,
     B: int = 10_000,
     seed: int | str = 42,
+    clusters: list | np.ndarray | None = None,
 ) -> float:
-    """Paired bootstrap LCB on relative geomean improvement.
+    """Paired (cluster) bootstrap LCB on relative geomean improvement.
 
     The metric is the global geomean of ``MeanWeightedSumQuantileLoss`` and
-    mean MASE. Each bag resamples window indices once (paired across king and
+    geometric-mean MASE. Each bag resamples once (paired across king and
     challenger) and aggregates the MWSQL numerator/denominator separately
     before dividing — which removes the per-window pathology of MWSQL.
+
+    ``clusters`` (optional, one hashable label per window — e.g. the upstream
+    feed id from pool metadata ``source``) switches to a **cluster bootstrap**:
+    whole clusters are resampled, never individual windows. Windows from one
+    feed are correlated in which model they favour, so resampling them
+    independently understates the variance and yields an overconfident LCB;
+    with clusters the effective sample size is the number of feeds, which is
+    the honest one. ``None`` keeps the classic per-window bootstrap.
 
     Returns the ``alpha``-quantile of the bag relative differences; positive
     means the challenger reliably beat the king.
@@ -135,10 +191,15 @@ def paired_bootstrap_lcb_aggregated(
             "windows are not paired correctly"
         )
 
+    codes = cluster_codes(clusters, n)
+    g = int(codes.max()) + 1
+    king_c = _cluster_sums(king_qloss, king_abs_target, king_mase, codes, g)
+    chal_c = _cluster_sums(chal_qloss, chal_abs_target, chal_mase, codes, g)
+
     rng = np.random.default_rng(_seed_to_int(seed))
-    idx = rng.integers(0, n, size=(B, n))
-    king_geo = _bag_geomeans(king_qloss, king_abs_target, king_mase, idx)
-    chal_geo = _bag_geomeans(chal_qloss, chal_abs_target, chal_mase, idx)
+    idx = rng.integers(0, g, size=(B, g))
+    king_geo = _bag_geomeans(*king_c, idx)
+    chal_geo = _bag_geomeans(*chal_c, idx)
     safe_king = np.where(np.abs(king_geo) < 1e-9, 1e-9, king_geo)
     rel = (king_geo - chal_geo) / safe_king
     return float(np.quantile(rel, alpha))

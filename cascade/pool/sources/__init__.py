@@ -12,6 +12,7 @@ from collections.abc import Callable
 from ..source import DataSource
 from .openmeteo import OpenMeteoSource
 from .synthetic import SyntheticSource
+from .tsbench_forge import TsbenchForgeSource
 from .wikimedia import WikimediaSource
 
 # Name → zero-arg factory (so each `build` gets a fresh instance with defaults).
@@ -19,6 +20,7 @@ _REGISTRY: dict[str, Callable[[], DataSource]] = {
     "openmeteo": OpenMeteoSource,
     "wikimedia": WikimediaSource,
     "synthetic": SyntheticSource,
+    "tsbench_forge": TsbenchForgeSource,
 }
 
 # Real-world sources used when the operator doesn't name any explicitly.
@@ -44,6 +46,7 @@ __all__ = [
     "OpenMeteoSource",
     "WikimediaSource",
     "SyntheticSource",
+    "TsbenchForgeSource",
     "DEFAULT_SOURCES",
     "available",
     "get_source",

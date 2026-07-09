@@ -114,3 +114,160 @@ def test_synthetic_is_deterministic_and_sized():
     assert all(s.values.shape[0] == CTX.context_length + CTX.horizon for s in a)
     for x, y in zip(a, b, strict=True):
         assert np.array_equal(x.values, y.values)
+
+
+# ── tsbench-forge (parquet mirror; needs the pool-forge extra) ────────────────
+
+pytest = __import__("pytest")
+
+
+def _write_forge_mirror(tmp_path, as_of):
+    """A miniature forge mirror: catalog + dated parquet under data/<id>/."""
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    yaml = pytest.importorskip("yaml")
+
+    catalog = [
+        {  # hourly, panel-expanded into two series
+            "id": "grid_load", "domain": "energy", "dgp_class": "load_curve",
+            "frequency": "PT1H",
+        },
+        {  # daily, single series
+            "id": "wiki_views", "domain": "web_traffic", "dgp_class": "attention",
+            "frequency": "P1D",
+        },
+        {"id": "switched_off", "domain": "energy", "frequency": "PT1H", "disabled": True},
+        {"id": "too_slow", "domain": "econ_fin", "frequency": "P1W"},
+        {"id": "gone_stale", "domain": "nature", "frequency": "PT1H"},
+    ]
+    root = tmp_path / "forge"
+    root.mkdir()
+    (root / "sources.yaml").write_text(yaml.safe_dump(catalog), encoding="utf-8")
+
+    def write(sid, day, df):
+        d = root / "data" / sid
+        d.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(d / f"{day}.parquet")
+
+    hours = pd.date_range("2026-05-20", periods=400, freq="h", tz="UTC")
+    write("grid_load", as_of.isoformat(), pd.DataFrame({
+        "timestamp": list(hours.astype(str)) * 2,
+        "load_mw": [float(i % 24) for i in range(400)] + [float((i * 3) % 24) for i in range(400)],
+        "_panel_REGION": ["north"] * 400 + ["south"] * 400,
+    }))
+    days = pd.date_range("2025-06-01", periods=400, freq="D", tz="UTC")
+    write("wiki_views", as_of.isoformat(), pd.DataFrame({
+        "timestamp": days.astype(str),
+        "views": [float(100 + (i % 7) * 10) for i in range(400)],
+    }))
+    # A future-dated snapshot must be ignored for a build pinned at as_of.
+    write("wiki_views", (as_of + dt.timedelta(days=2)).isoformat(), pd.DataFrame({
+        "timestamp": ["2026-09-01T00:00:00+00:00"], "views": [1e9],
+    }))
+    # Newest snapshot far older than max_stale_days before as_of → skipped.
+    write("gone_stale", (as_of - dt.timedelta(days=30)).isoformat(), pd.DataFrame({
+        "timestamp": hours.astype(str), "v": [1.0 * i for i in range(400)],
+    }))
+    write("switched_off", as_of.isoformat(), pd.DataFrame({
+        "timestamp": hours.astype(str), "v": [2.0 * i for i in range(400)],
+    }))
+    return root
+
+
+def test_tsbench_forge_reads_mirror_and_labels_clusters(tmp_path):
+    from cascade.pool.sources.tsbench_forge import TsbenchForgeSource
+
+    as_of = dt.date(2026, 6, 1)
+    root = _write_forge_mirror(tmp_path, as_of)
+    ctx = HarvestContext(as_of=as_of, context_length=512, horizon=16, max_series=100)
+    out = list(TsbenchForgeSource(root).harvest(lambda u, p: None, ctx))
+
+    ids = sorted(s.series_id for s in out)
+    assert ids == [
+        "tsforge__grid_load__REGION_north",
+        "tsforge__grid_load__REGION_south",
+        "tsforge__wiki_views",
+    ]  # disabled, weekly, and stale sources are all skipped
+    hourly = next(s for s in out if s.series_id.endswith("north"))
+    assert hourly.freq == "H" and hourly.seasonal_period == 24
+    assert hourly.domain == "energy" and hourly.source == "grid_load"
+    daily = next(s for s in out if "wiki" in s.series_id)
+    assert daily.freq == "D" and daily.seasonal_period == 7
+    # The future-dated snapshot (and its absurd row) never entered the series.
+    assert float(np.nanmax(daily.values)) < 1e6
+
+
+def test_tsbench_forge_raises_when_everything_is_stale(tmp_path):
+    from cascade.pool.source import HarvestError
+    from cascade.pool.sources.tsbench_forge import TsbenchForgeSource
+
+    as_of = dt.date(2026, 6, 1)
+    root = _write_forge_mirror(tmp_path, as_of)
+    late = dt.date(2026, 8, 1)  # far past every snapshot
+    ctx = HarvestContext(as_of=late, context_length=512, horizon=16, max_series=100)
+    with pytest.raises(HarvestError, match="no fresh tsbench-forge data"):
+        list(TsbenchForgeSource(root).harvest(lambda u, p: None, ctx))
+
+
+def test_tsbench_forge_respects_max_series(tmp_path):
+    from cascade.pool.sources.tsbench_forge import TsbenchForgeSource
+
+    as_of = dt.date(2026, 6, 1)
+    root = _write_forge_mirror(tmp_path, as_of)
+    ctx = HarvestContext(as_of=as_of, context_length=512, horizon=16, max_series=1)
+    out = list(TsbenchForgeSource(root).harvest(lambda u, p: None, ctx))
+    assert len(out) == 1
+
+
+def test_resolve_frequency_derivation_matches_the_pinned_table():
+    """The generic ISO-duration path must reproduce every canonical entry, so a
+    catalog cadence dropping out of FREQ_MAP can never change behaviour."""
+    from cascade.pool.sources.tsbench_forge import FREQ_MAP, _iso_duration_seconds
+
+    for iso, (_, period) in FREQ_MAP.items():
+        sec = int(_iso_duration_seconds(iso))
+        if sec == 86_400:
+            assert period == 7
+        elif sec >= 300:
+            assert period == max(2, round(86_400 / sec)), iso
+        else:
+            assert period == max(2, round(3_600 / sec)), iso
+
+
+def test_resolve_frequency_handles_future_cadences():
+    from cascade.pool.sources.tsbench_forge import resolve_frequency
+
+    assert resolve_frequency("PT20M") == ("1200S", 72)     # new sub-daily feed
+    assert resolve_frequency("PT2M") == ("120S", 30)       # faster than 5min → hourly cycle
+    assert resolve_frequency("PT4H") == ("14400S", 6)
+    assert resolve_frequency("PT1H30M") == ("5400S", 16)   # compound duration
+    assert resolve_frequency("P1W") is None                # weekly+ still skipped
+    assert resolve_frequency("P1M") is None
+    assert resolve_frequency("fortnightly") is None        # unparseable
+    assert resolve_frequency("PT1H") == ("H", 24)          # table stays canonical
+
+
+def test_tsbench_forge_picks_up_a_new_cadence_source(tmp_path):
+    """A catalog entry at a cadence FREQ_MAP has never seen must still be
+    harvested — the future-proofing contract for a growing catalog."""
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    yaml = pytest.importorskip("yaml")
+    from cascade.pool.sources.tsbench_forge import TsbenchForgeSource
+
+    as_of = dt.date(2026, 6, 1)
+    root = tmp_path / "forge"
+    (root / "data" / "new_feed").mkdir(parents=True)
+    (root / "sources.yaml").write_text(yaml.safe_dump([
+        {"id": "new_feed", "domain": "transport", "frequency": "PT20M"},
+    ]), encoding="utf-8")
+    ts = pd.date_range("2026-05-25", periods=500, freq="20min", tz="UTC")
+    pd.DataFrame({"timestamp": ts.astype(str),
+                  "count": [float(i % 72) for i in range(500)]}).to_parquet(
+        root / "data" / "new_feed" / f"{as_of}.parquet")
+
+    ctx = HarvestContext(as_of=as_of, context_length=512, horizon=16, max_series=10)
+    out = list(TsbenchForgeSource(root).harvest(lambda u, p: None, ctx))
+    assert len(out) == 1
+    assert out[0].freq == "1200S" and out[0].seasonal_period == 72
+    assert out[0].source == "new_feed"

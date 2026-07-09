@@ -34,6 +34,14 @@ dev = [
     "hypothesis>=6.100",
     "ruff>=0.5",
 ]
+# tsbench-forge pool source (producer/orchestrator side only): reads the forge
+# scraper's parquet mirror. Validators never need this — they consume the
+# built .npy pool.
+pool-forge = [
+    "pyarrow>=15.0",
+    "pyyaml>=6.0",
+    "pandas>=2.0",
+]
 # Ephemeral GPU-pod provisioner (deploy/provision.py). Shells out to the `lium`
 # CLI (installed separately) and calls the Shadeform REST API via requests.
 deploy = [

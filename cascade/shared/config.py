@@ -380,6 +380,11 @@ class ScoringConfig:
     bootstrap_B: int
     bootstrap_alpha: float
     dethrone_cp: int
+    # Breadth floor for the verdict: below this many distinct window clusters
+    # (upstream feeds, from pool metadata ``source``) the round is inconclusive.
+    # 0 disables; pools without ``source`` metadata are unaffected. Default keeps
+    # older chain.toml loadable.
+    min_clusters: int = 0
     # Reward routing: equal weight is split across the current king plus up to
     # ``reward_prior_kings`` previous distinct kings still registered; with none
     # registered, all weight burns to ``burn_uid``. ``reward_prior_kings = 0``
@@ -531,6 +536,7 @@ class ChainConfig:
             bootstrap_B=self.scoring.bootstrap_B,
             bootstrap_alpha=self.scoring.bootstrap_alpha,
             dethrone_cp=self.scoring.dethrone_cp,
+            min_clusters=self.scoring.min_clusters,
             gift_gate_mode=self.scoring.gift_gate_mode,
             gift_gate_tolerance=self.scoring.gift_gate_tolerance,
             gift_gate_min_configs=self.scoring.gift_gate_min_configs,
@@ -744,6 +750,7 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             bootstrap_B=int(s["bootstrap_B"]),
             bootstrap_alpha=float(s["bootstrap_alpha"]),
             dethrone_cp=int(s["dethrone_cp"]),
+            min_clusters=int(s.get("min_clusters", 0)),
             reward_prior_kings=int(s.get("reward_prior_kings", 0)),
             burn_uid=int(s.get("burn_uid", 0)),
             gift_gate_mode=_gift_gate_mode(s.get("gift_gate_mode", "off")),

@@ -85,3 +85,66 @@ def test_entrenched_king_needs_bigger_win():
     entrenched = evaluate_round(king, chal, PARAMS, seed="s", king_tenure_rounds=10)
     assert fresh.challenger_wins_round
     assert not entrenched.challenger_wins_round
+
+
+def _paired_chal(king, factor):
+    return [
+        WindowScore(s.series_id, s.mase * factor, s.qloss_per_q * factor,
+                    s.abs_target, domain=s.domain, source=s.source)
+        for s in king
+    ]
+
+
+def _scores_with_sources(n, n_sources, seed, domain="energy"):
+    rng = np.random.default_rng(seed)
+    out = []
+    for i in range(n):
+        out.append(
+            WindowScore(
+                series_id=str(i),
+                mase=float(rng.uniform(0.5, 1.5)),
+                qloss_per_q=rng.uniform(0.1, 1.0, size=9),
+                abs_target=float(rng.uniform(5.0, 10.0)),
+                domain=domain,
+                source=f"feed{i % n_sources}",
+            )
+        )
+    return out
+
+
+def test_min_clusters_floor_makes_round_inconclusive():
+    params = KothParams(
+        win_margin_start=0.02, win_margin_end=0.02, margin_warmup_rounds=0,
+        min_windows=20, bootstrap_B=500, bootstrap_alpha=0.05, dethrone_cp=1,
+        min_clusters=10,
+    )
+    king = _scores_with_sources(50, n_sources=3, seed=0)  # 3 feeds < 10
+    chal = _paired_chal(king, 0.5)
+    res = evaluate_round(king, chal, params, seed="s")
+    assert res.inconclusive and not res.challenger_wins_round
+    assert res.n_clusters == 3
+
+    enough = _scores_with_sources(50, n_sources=25, seed=0)
+    res2 = evaluate_round(enough, _paired_chal(enough, 0.5), params, seed="s")
+    assert not res2.inconclusive and res2.n_clusters == 25
+
+
+def test_shadow_diagnostics_populated_on_clear_win():
+    king = _scores_with_sources(100, n_sources=20, seed=1)
+    chal = _paired_chal(king, 0.6)
+    res = evaluate_round(king, chal, PARAMS, seed="s")
+    assert res.challenger_wins_round
+    assert res.win_rate == 1.0                      # challenger wins every window
+    assert res.wilcoxon_p is not None and res.wilcoxon_p < 0.01
+    assert res.per_domain_win_rate == {"energy": (1.0, 100)}
+    assert res.n_clusters == 20
+
+
+def test_unlabeled_scores_are_singleton_clusters():
+    king = _scores(100, 1.0, 0)  # no source labels
+    chal = [
+        WindowScore(s.series_id, s.mase * 0.6, s.qloss_per_q * 0.6, s.abs_target)
+        for s in king
+    ]
+    res = evaluate_round(king, chal, PARAMS, seed="s")
+    assert res.n_clusters == 100  # every window its own cluster (legacy pools)

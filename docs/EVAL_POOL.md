@@ -103,11 +103,58 @@ credentials, so a Hippius-only operator needs nothing extra.
 
 ## Sources (shipped)
 
-| name        | domain      | freq | seasonality | notes |
-|-------------|-------------|------|-------------|-------|
-| `openmeteo` | weather     | H    | 24 (daily)  | keyless archive API; global grid (~252 pts × 12 vars), fills full context |
-| `wikimedia` | web_traffic | D    | 7 (weekly)  | keyless REST API; ~85 articles, shorter-context breadth |
-| `synthetic` | synthetic   | H    | 24          | offline/testing only — **not** for a real pool |
+| name            | domain          | freq       | seasonality | notes |
+|-----------------|-----------------|------------|-------------|-------|
+| `openmeteo`     | weather         | H          | 24 (daily)  | keyless archive API; global grid (~252 pts × 12 vars), fills full context |
+| `wikimedia`     | web_traffic     | D          | 7 (weekly)  | keyless REST API; ~85 articles, shorter-context breadth |
+| `tsbench_forge` | 7 GIFT domains  | 30S–D      | per cadence | reads a synced [tsbench-forge](https://github.com/tensorlink-dev/TSBench-Forge) scraper mirror (~90 feeds, 36 DGP classes); needs the `pool-forge` extra |
+| `synthetic`     | synthetic       | H          | 24          | offline/testing only — **not** for a real pool |
+
+### tsbench-forge (bucket relay)
+
+The broadest source is the tsbench-forge live catalog: ~90 verified,
+daily-or-faster public feeds across the 7 GIFT-Eval domains, curated with a
+contamination denylist and novelty vetting. The coupling is the scraper's
+on-disk contract (`sources.yaml` + `data/<source_id>/<YYYY-MM-DD>.parquet`) —
+cascade never imports forge code. The deployment is a two-bucket relay:
+
+```
+forge scrape host                owner orchestrator                    validators
+scraper cron ─► raw-data bucket ─► cascade-pool publish ─► pool bucket ─► fetch by
+                (parquet+catalog)  (sync, build, validate)  (tar+index)   effective_round
+```
+
+1. The forge cron ends with `scripts/publish_data_bucket.sh` (in the forge
+   repo): an `aws s3 sync` of `data/` + `sources.yaml` to a **private** bucket.
+2. The publish cron here syncs that bucket down and points the source at the
+   mirror before building:
+
+```bash
+aws s3 sync "s3://$TSFORGE_BUCKET" ./tsforge --exact-timestamps
+TSFORGE_DIR=./tsforge cascade-pool publish --sources tsbench_forge --effective-round auto
+```
+
+Install the producer extra first: `pip install "cascade[pool-forge]"` (pyarrow
++ pyyaml + pandas; validators never need it — they consume the built `.npy`
+pool). Everything downstream — deterministic tar, `effective_round` consensus,
+validator fetch — is unchanged.
+
+Properties worth knowing:
+
+* **Freshness cutoff** — only snapshots dated `<= as_of` are read and rows
+  stamped after `as_of` are dropped, so a rebuild against the same mirror is
+  reproducible (the dated bucket pins the audit inputs).
+* **Staleness guard** — a feed whose newest snapshot is older than
+  `max_stale_days` (default 4) before `as_of` is skipped; if *every* feed is
+  stale the build fails loudly instead of republishing old data. With the crons
+  decoupled, a dead scraper must not silently erode the freshness lever.
+* **Cluster labels** — every series lands in `metadata.json` with
+  `source = <catalog id>`. The validator's KOTH bootstrap resamples these
+  *clusters* rather than windows (windows from one feed are correlated), and
+  `[scoring] min_clusters` sets a breadth floor on the verdict. Raise it to
+  ~30 once this source feeds the pool.
+* Weekly-and-slower catalog entries, `disabled` feeds, and categorical feeds
+  are skipped; panel-expanded feeds are capped at 200 series per source.
 
 The defaults produce **~3000 raw series** (Open-Meteo's global grid dominates),
 which clears `[eval] n_windows = 2000` with margin after validation drops — and

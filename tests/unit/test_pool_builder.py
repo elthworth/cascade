@@ -165,3 +165,15 @@ def test_write_refuses_empty_and_existing(tmp_path):
         build_pool([_ListSource(items)], out, CTX, CFG, fetch=None)
     # overwrite succeeds
     build_pool([_ListSource(items)], out, CTX, CFG, fetch=None, overwrite=True)
+
+
+def test_source_label_lands_in_metadata():
+    cfg = PoolBuildConfig(context_length=512, horizon=16)
+    labeled = HarvestedSeries(
+        "s1", 10 + np.sin(np.arange(600) / 5.0), "H", "energy", 24, source="grid_load"
+    )
+    rec, reason = prepare_series(labeled, cfg)
+    assert reason is None and rec.metadata["source"] == "grid_load"
+    # Legacy sources without a label stay unchanged: no source key at all.
+    rec2, _ = prepare_series(_series("s2"), cfg)
+    assert "source" not in rec2.metadata

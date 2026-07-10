@@ -44,6 +44,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"king:     {runner.state.king_hotkey}")
         print(f"tenure:   {runner.state.tenure_rounds}")
         print(f"dethrone_cp: {runner.cfg.scoring.dethrone_cp}")
+        print(f"cascade_reign_days: {runner.cfg.scoring.cascade_reign_days}")
+        if runner.cascade is not None:
+            cs = runner.cascade.state
+            print(f"cascade king: {cs.king_hotkey} "
+                  f"(reign checkpoints logged: {len(cs.checkpoints)})")
         print(f"manifest_bucket: {runner.cfg.storage.manifest_bucket}")
         pool_bucket = runner.cfg.storage.pool_bucket
         if pool_bucket:

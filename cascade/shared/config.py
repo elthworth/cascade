@@ -408,6 +408,13 @@ class ScoringConfig:
     gift_gate_mode: str = "off"
     gift_gate_tolerance: float = 0.03
     gift_gate_min_configs: int = 15
+    # Cascade — king-reign promotion (see cascade.validator.cascade). When the
+    # reigning king holds the throne this many CONSECUTIVE WALL-CLOCK DAYS
+    # undethroned, the reign's best checkpoint (lowest geomean of GIFT-Eval /
+    # TIME CRPS+MASE) is installed as the warm-start init and the throne is
+    # vacated to re-open the competition from it. Reign clock is wall-clock, so
+    # it is persisted and survives restarts.
+    cascade_reign_days: int = 7
 
 
 @dataclass(frozen=True)
@@ -496,6 +503,13 @@ class ValidatorConfig:
     poll_seconds: int
     hf_cache_seconds: int
     state_db_path: str
+    # Cascade persistence (see cascade.validator.cascade). ``cascade_state_db_path``
+    # holds the reign clock + reign checkpoint log (JSON) so Cascade survives
+    # restarts; ``warm_start_init_path`` is where a fired Cascade writes the
+    # promoted checkpoint pointer for the trainer to warm-start every subsequent
+    # round from. Defaults keep older chain.toml loadable.
+    cascade_state_db_path: str = "cascade_state.json"
+    warm_start_init_path: str = "warm_start_init.json"
 
 
 @dataclass(frozen=True)
@@ -770,6 +784,7 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             gift_gate_mode=_gift_gate_mode(s.get("gift_gate_mode", "off")),
             gift_gate_tolerance=float(s.get("gift_gate_tolerance", 0.03)),
             gift_gate_min_configs=int(s.get("gift_gate_min_configs", 15)),
+            cascade_reign_days=int(s.get("cascade_reign_days", 7)),
         ),
         dependencies=DependencyConfig(
             max_packages=int(d["max_packages"]),
@@ -800,6 +815,8 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             poll_seconds=int(v["poll_seconds"]),
             hf_cache_seconds=int(v["hf_cache_seconds"]),
             state_db_path=str(v["state_db_path"]),
+            cascade_state_db_path=str(v.get("cascade_state_db_path", "cascade_state.json")),
+            warm_start_init_path=str(v.get("warm_start_init_path", "warm_start_init.json")),
         ),
         wandb=WandbConfig(
             enabled=bool(wb.get("enabled", False)),

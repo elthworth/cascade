@@ -139,6 +139,23 @@ The validator never trains. Each round it:
    `[scoring] reward_prior_kings` registered prior kings (`reward_prior_kings = 0`
    ⇒ winner-take-all on the king; burns to `burn_uid` if none are registered).
 
+### Cascade — king-reign promotion
+
+On top of the daily KOTH sits **Cascade** (`cascade.validator.cascade`), a
+wall-clock ratchet that periodically raises the floor the whole field trains up
+from. A **reign clock** counts days since the current king last took the throne;
+every dethrone re-crowns and resets it (Cascade reuses the KOTH dethrone signal —
+it never re-implements dethroning). During a reign every checkpoint the king
+produces is scored on **GIFT-Eval and TIME** — `score =
+geomean(gifteval_crps, gifteval_mase, time_crps, time_mase)`, lower better — and
+kept in a per-reign log. When a king holds the throne `[scoring]
+cascade_reign_days` (default 7) consecutive days undethroned, a **Cascade** fires:
+the reign's lowest-score checkpoint (a lookup, not a re-eval) is installed **as-is**
+as the warm-start init for all subsequent rounds, then the throne is vacated — the
+king is cleared, the competition re-opens from the new init, and the clock resets.
+The reign clock and checkpoint log persist next to the champion state, so Cascade
+survives validator restarts.
+
 ## The controlled-experiment invariant
 
 For a round to be a fair measurement of data quality, at **each size** the king's

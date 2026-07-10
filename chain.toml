@@ -255,6 +255,13 @@ king_decay           = 1.0       # geometric decay of reward across [king, prior
 gift_gate_mode       = "off"     # "off" | "shadow" (log-only) | "enforce"
 gift_gate_tolerance  = 0.03      # relative slack: challenger may be this much worse before failing
 gift_gate_min_configs = 15       # shared gift-eval configs below which the gate is uncomputable
+# Cascade — king-reign promotion (see cascade.validator.cascade). When the
+# reigning king holds the throne this many CONSECUTIVE WALL-CLOCK DAYS
+# undethroned, the reign's best checkpoint (lowest geomean of GIFT-Eval + TIME
+# CRPS/MASE) is installed as the warm-start init and the throne is vacated so the
+# whole field re-competes from it. The reign clock is wall-clock driven and
+# persisted, so it survives validator restarts.
+cascade_reign_days   = 7         # consecutive undethroned days before a Cascade fires
 
 [dependencies]
 # Allowlist for a generator's requirements.txt — supply-chain restriction.
@@ -359,6 +366,12 @@ weight_set_interval_blocks = 180
 poll_seconds               = 120
 hf_cache_seconds           = 1800
 state_db_path              = "validator_state.db"
+# Cascade (see [scoring] cascade_reign_days). The reign clock + reign checkpoint
+# log persist here so Cascade survives restarts; a fired Cascade writes the
+# promoted checkpoint pointer to warm_start_init_path for the trainer to
+# warm-start every subsequent round from.
+cascade_state_db_path      = "cascade_state.json"
+warm_start_init_path       = "warm_start_init.json"
 
 [wandb]
 # Optional LIVE training dashboards (Weights & Biases). Observability only — the

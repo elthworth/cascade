@@ -205,11 +205,13 @@ burn_uid             = 0         # weight sink when no rewarded king is register
 gift_gate_mode       = "off"     # "off" | "shadow" (log-only) | "enforce"
 gift_gate_tolerance  = 0.03      # relative slack: challenger may be this much worse before failing
 gift_gate_min_configs = 15       # shared gift-eval configs below which the gate is uncomputable
-# Cascade — king-reign promotion (see cascade.validator.cascade). Shorter reign
-# on testnet for iteration; mainnet defaults to 7. When the king holds this many
-# consecutive undethroned wall-clock days, the reign's best checkpoint (lowest
-# geomean of GIFT-Eval + TIME CRPS/MASE) is installed as the warm-start init and
-# the throne is vacated so the field re-competes from it.
+# Cascade — king-reign promotion / warm-start (see cascade.validator.cascade).
+# Enabled on testnet with a shorter reign for iteration (mainnet defaults off,
+# reign 7). When the king holds this many consecutive undethroned wall-clock
+# days, the reign's best checkpoint (lowest geomean of GIFT-Eval + TIME
+# CRPS/MASE) is installed as the warm-start init and the throne is vacated so the
+# field re-competes from it.
+cascade_enabled      = true      # master on/off for warm-start promotion
 cascade_reign_days   = 1         # consecutive undethroned days before a Cascade fires
 
 [dependencies]

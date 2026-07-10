@@ -408,12 +408,15 @@ class ScoringConfig:
     gift_gate_mode: str = "off"
     gift_gate_tolerance: float = 0.03
     gift_gate_min_configs: int = 15
-    # Cascade — king-reign promotion (see cascade.validator.cascade). When the
-    # reigning king holds the throne this many CONSECUTIVE WALL-CLOCK DAYS
-    # undethroned, the reign's best checkpoint (lowest geomean of GIFT-Eval /
-    # TIME CRPS+MASE) is installed as the warm-start init and the throne is
-    # vacated to re-open the competition from it. Reign clock is wall-clock, so
-    # it is persisted and survives restarts.
+    # Cascade — king-reign promotion / warm-start (see cascade.validator.cascade).
+    # ``cascade_enabled`` is the master switch: off (default) ⇒ pure KOTH, no
+    # reign clock, no per-round GIFT-Eval/TIME scoring, no warm-start promotion.
+    # When on, and the reigning king holds the throne ``cascade_reign_days``
+    # CONSECUTIVE WALL-CLOCK DAYS undethroned, the reign's best checkpoint (lowest
+    # geomean of GIFT-Eval / TIME CRPS+MASE) is installed as the warm-start init
+    # and the throne is vacated to re-open the competition from it. The reign
+    # clock is wall-clock, so it is persisted and survives restarts.
+    cascade_enabled: bool = False
     cascade_reign_days: int = 7
 
 
@@ -784,6 +787,7 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             gift_gate_mode=_gift_gate_mode(s.get("gift_gate_mode", "off")),
             gift_gate_tolerance=float(s.get("gift_gate_tolerance", 0.03)),
             gift_gate_min_configs=int(s.get("gift_gate_min_configs", 15)),
+            cascade_enabled=bool(s.get("cascade_enabled", False)),
             cascade_reign_days=int(s.get("cascade_reign_days", 7)),
         ),
         dependencies=DependencyConfig(

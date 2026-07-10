@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from cascade.validator.cascade import (
     CascadeController,
     CascadeState,
@@ -176,10 +178,8 @@ def test_install_failure_leaves_reign_intact_for_retry():
     ctl = CascadeController(reign_days=7, install_fn=_boom)
     ctl.note_dethrone("kingA", now=0.0)
     ctl.record_checkpoint("c", gifteval_crps=1, gifteval_mase=1, time_crps=1, time_mase=1, now=DAY)
-    try:
+    with pytest.raises(RuntimeError):
         ctl.cascade_check(now=7 * DAY)
-    except RuntimeError:
-        pass
     # The throne was NOT vacated — a failed install is retried next round.
     assert ctl.state.king_hotkey == "kingA"
     assert len(ctl.state.checkpoints) == 1
@@ -244,3 +244,43 @@ def test_load_state_corrupt_file_is_fresh(tmp_path):
 
 def test_vacate_is_empty_state():
     assert vacate() == CascadeState()
+
+
+# ── config toggle: warm-start on/off ─────────────────────────────────────────
+
+
+def test_cascade_toggle_wires_controller(tmp_path):
+    from cascade.shared.config import load_chain_config
+    from cascade.validator.loop import build_runner
+
+    base = load_chain_config("chain.toml")
+    # Off (mainnet default) ⇒ no controller wired (pure KOTH).
+    assert base.scoring.cascade_enabled is False
+    runner_off = build_runner(chain_toml=None)  # DEFAULT_CHAIN_TOML == chain.toml
+    assert runner_off.cascade is None
+
+    # On (testnet) ⇒ controller wired.
+    on = load_chain_config("chain.testnet.toml")
+    assert on.scoring.cascade_enabled is True
+    runner_on = build_runner(chain_toml=_write_toml_with_cascade(tmp_path, enabled=True))
+    assert runner_on.cascade is not None
+    assert runner_on.cascade.reign_days == 7
+
+
+def _write_toml_with_cascade(tmp_path, *, enabled: bool):
+    """Copy chain.toml into tmp with cascade_enabled flipped, so build_runner's
+    persisted-state paths land in tmp rather than the repo root."""
+    import re
+    from pathlib import Path
+
+    text = Path("chain.toml").read_text(encoding="utf-8")
+    text = re.sub(r"cascade_enabled\s*=\s*\w+",
+                  f"cascade_enabled      = {'true' if enabled else 'false'}", text)
+    # Redirect the persisted state files under tmp.
+    text = re.sub(r'cascade_state_db_path\s*=\s*"[^"]*"',
+                  f'cascade_state_db_path      = "{tmp_path / "cascade_state.json"}"', text)
+    text = re.sub(r'warm_start_init_path\s*=\s*"[^"]*"',
+                  f'warm_start_init_path       = "{tmp_path / "warm_start_init.json"}"', text)
+    p = tmp_path / "chain.toml"
+    p.write_text(text, encoding="utf-8")
+    return p

@@ -958,7 +958,10 @@ def build_runner(
     from ..shared.config import load_chain_config
 
     cfg = load_chain_config(chain_toml)
+    # Cascade is opt-in ([scoring] cascade_enabled); off ⇒ no controller is wired
+    # and the runner is pure KOTH.
+    cascade = _build_cascade(cfg) if cfg.scoring.cascade_enabled else None
     return ValidatorRunner(
         cfg=cfg, state=_load_state(cfg.validator.state_db_path),
-        cache_dir=cache_dir, device=device, cascade=_build_cascade(cfg),
+        cache_dir=cache_dir, device=device, cascade=cascade,
     )

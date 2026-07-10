@@ -15,6 +15,10 @@
   digest content-addresses your submission, so ``repo@digest`` both locates and
   pins it (no separate git SHA). Requires the ``[chain]`` extra (bittensor) + a
   wallet, and the ``[hippius]`` extra + Hub credentials in the environment.
+  ``--hf-repo <namespace/name>`` is a HuggingFace fallback (``repo@hf:<sha>``) used
+  ONLY if the Hub push fails — the Hub is always tried first, so a healthy Hippius
+  always wins (you cannot bypass it while it's up). The chain commit and the
+  trainer's fetch/audit treat an ``hf:`` ref exactly like a Hub one.
 
 * ``cascade fetch king`` (or a uid / hotkey / ``repo@digest``) — download a
   competitor's on-chain generator to a local dir so you can inspect or fork it.
@@ -66,9 +70,17 @@ def _add_deploy(sub: argparse._SubParsersAction) -> None:
         help="Your Hippius Hub repo id (namespace/name) to push the generator to.",
     )
     p.add_argument(
+        "--hf-repo",
+        default=None,
+        help="A HuggingFace model repo (namespace/name) used ONLY as a fallback if the "
+        "Hippius Hub push fails — the Hub is always tried first, so a healthy Hippius "
+        "always wins. Requires --hub-repo. Needs HF_TOKEN. The resulting repo@hf:<sha> "
+        "ref trains + audits like a Hub one.",
+    )
+    p.add_argument(
         "--ref",
         default=None,
-        help="Skip the upload and commit this already-uploaded Hub ref (repo@digest) directly.",
+        help="Skip the upload and commit this already-uploaded ref (repo@digest) directly.",
     )
     p.set_defaults(func=_cmd_deploy)
 
@@ -238,13 +250,51 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def _upload_generator(args: argparse.Namespace, cfg) -> tuple[int, str | None]:
+    """Upload the generator and return ``(exit_code, ref)``. Hippius is priority one:
+    the Hub (``--hub-repo``, required) is ALWAYS tried first, so a healthy Hippius
+    always wins. Only if the Hub push fails does it fall back to a HuggingFace mirror
+    (``--hf-repo``), so a miner can still submit through a Hub outage. Returns
+    ``(0, ref)`` on success, else ``(4, None)``."""
+    from ..shared.hippius import (
+        HubConfig,
+        StorageError,
+        upload_dir_to_hf,
+        upload_dir_to_hub,
+    )
+
+    try:
+        up = upload_dir_to_hub(args.repo_dir, args.hub_repo, HubConfig.from_storage(cfg.storage))
+        print(f"pushed to Hippius Hub: {up.ref.immutable_ref} ({up.size_bytes} bytes)")
+        return 0, up.ref.immutable_ref
+    except StorageError as e:
+        hub_err = str(e)  # bind now — the `as` name is cleared at except-block exit
+        if not args.hf_repo:
+            print(f"registry upload failed: {e}", file=sys.stderr)
+            return 4, None
+        print(f"Hippius Hub upload failed ({e});\n"
+              f"  falling back to HuggingFace mirror {args.hf_repo}", file=sys.stderr)
+
+    try:
+        up = upload_dir_to_hf(args.repo_dir, args.hf_repo)
+    except StorageError as e:
+        print(f"HuggingFace mirror upload failed: {e} (Hub also failed: {hub_err})",
+              file=sys.stderr)
+        return 4, None
+    print(f"mirrored to HuggingFace: {up.ref.immutable_ref} ({up.size_bytes} bytes)")
+    return 0, up.ref.immutable_ref
+
+
 def _cmd_deploy(args: argparse.Namespace) -> int:
     cfg = load_chain_config(args.chain_toml)
 
     ref = args.ref
     if ref is None:
         if not args.hub_repo:
-            print("error: --hub-repo (namespace/name) is required to upload.", file=sys.stderr)
+            print("error: --hub-repo (Hippius Hub) is required to upload — it is always "
+                  "tried first. --hf-repo is only a fallback for when the Hub push fails; "
+                  "pass it alongside --hub-repo. Or use --ref to commit an already-"
+                  "uploaded ref.", file=sys.stderr)
             return 2
         # Verify locally (cheaper than burning a chain commit), then upload.
         if not args.skip_verify:
@@ -253,16 +303,10 @@ def _cmd_deploy(args: argparse.Namespace) -> int:
                 print("local verify failed — refusing to deploy:", file=sys.stderr)
                 print(report.render(), file=sys.stderr)
                 return 1
-        from ..shared.hippius import HubConfig, StorageError, upload_dir_to_hub
 
-        try:
-            hub = HubConfig.from_storage(cfg.storage)
-            up = upload_dir_to_hub(args.repo_dir, args.hub_repo, hub)
-            ref = up.ref.immutable_ref
-        except StorageError as e:
-            print(f"registry upload failed: {e}", file=sys.stderr)
-            return 4
-        print(f"pushed to Hippius Hub: {ref} ({up.size_bytes} bytes)")
+        rc, ref = _upload_generator(args, cfg)
+        if rc != 0:
+            return rc
 
     try:
         payload = format_commit(ref)

@@ -369,6 +369,13 @@ class EvalConfig:
     gift_gate_num_samples: int = 0
     gift_gate_data_dir: str = ""
     gift_gate_timeout_s: int = 3600
+    # Cascade king-eval coverage (see cascade.validator.cascade). Cap on datasets
+    # per suite when the trainer scores the king's checkpoint on GIFT-Eval / BOOM /
+    # TIME. ``0`` = the FULL battery (all configs) — the default, since Cascade's
+    # promotion should see the whole eval. Kept separate from the log-only
+    # ``benchmark_max_series`` so tightening telemetry never quietly shrinks the
+    # Cascade decision. Set a positive cap only to speed up testnet iteration.
+    cascade_bench_max_series: int = 0
 
 
 @dataclass(frozen=True)
@@ -772,6 +779,7 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             gift_gate_num_samples=int(e.get("gift_gate_num_samples", 0)),
             gift_gate_data_dir=str(e.get("gift_gate_data_dir", "")),
             gift_gate_timeout_s=int(e.get("gift_gate_timeout_s", 3600)),
+            cascade_bench_max_series=int(e.get("cascade_bench_max_series", 0)),
         ),
         scoring=ScoringConfig(
             win_margin_start=float(s["win_margin_start"]),

@@ -57,3 +57,41 @@ def test_normalize_time_model_equals_naive_is_one():
     out = normalize_time(model, model)
     assert math.isclose(out["mase"], 1.0, rel_tol=1e-6)
     assert math.isclose(out["crps"], 1.0, rel_tol=1e-6)
+
+
+# ── Seasonal-Naive baseline cache (checkpoint-independent → compute once) ─────
+
+
+def test_baseline_cache_round_trips(tmp_path, monkeypatch):
+    from cascade_benchmark import cache
+
+    monkeypatch.setenv("CASCADE_BENCH_TIME_BASELINE_CACHE", str(tmp_path))
+    monkeypatch.delenv("CASCADE_BENCH_NO_CACHE", raising=False)
+    d = cache.baseline_cache_dir()
+    assert d == tmp_path
+    assert cache.load_baseline(d, "WUI_Global", "short", 24, 9) is None   # miss
+    cache.store_baseline(d, "WUI_Global", "short", 24, 9, {"MASE": 1.0, "CRPS": 0.5})
+    assert cache.load_baseline(d, "WUI_Global", "short", 24, 9) == {"MASE": 1.0, "CRPS": 0.5}
+    # A different task (or grid) is a distinct key.
+    assert cache.load_baseline(d, "WUI_Global", "long", 24, 9) is None
+    assert cache.load_baseline(d, "WUI_Global", "short", 48, 9) is None
+
+
+def test_baseline_cache_disabled(tmp_path, monkeypatch):
+    from cascade_benchmark import cache
+
+    monkeypatch.setenv("CASCADE_BENCH_TIME_BASELINE_CACHE", str(tmp_path))
+    monkeypatch.setenv("CASCADE_BENCH_NO_CACHE", "1")
+    assert cache.baseline_cache_dir() is None
+    # store/load are no-ops (and never raise) when disabled.
+    cache.store_baseline(None, "x", "short", 1, 9, {"MASE": 1.0})
+    assert cache.load_baseline(None, "x", "short", 1, 9) is None
+
+
+def test_baseline_cache_key_is_filesystem_safe(tmp_path):
+    from cascade_benchmark import cache
+
+    # Real TIME config keys contain slashes; the cache file name must stay flat.
+    p = cache.cache_key(tmp_path, "WUI_Global/region", "short", 24, 9)
+    assert p.parent == tmp_path
+    assert "/" not in p.name[:-5]  # basename minus ".json"

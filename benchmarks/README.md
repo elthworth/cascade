@@ -142,8 +142,12 @@ fabricated number.
   point Seasonal-Naive forecast through the **same** saver+metric path per task and
   normalize the model metric by it — the ratio→shifted-geomean below — so TIME's
   headline `crps`/`mase` are on the same footing as the other two suites (this is
-  also TIME's own leaderboard aggregation). `CASCADE_BENCH_TIME_RAW=1` forces the
-  legacy raw arithmetic mean (not baseline-normalized, so **not** comparable).
+  also TIME's own leaderboard aggregation). The baseline is checkpoint-independent,
+  so it is **cached** (`cache.py`, `~/.cache/cascade_benchmark/time_snaive` or
+  `CASCADE_BENCH_TIME_BASELINE_CACHE`; `CASCADE_BENCH_NO_CACHE=1` disables) and
+  computed at most once per task — the model forward is the only per-round cost.
+  `CASCADE_BENCH_TIME_RAW=1` forces the legacy raw arithmetic mean (not
+  baseline-normalized, so **not** comparable).
 
 Both `GIFT_EVAL` and `BOOM` env vars must point at the respective downloaded
 benchmark data (gift-eval layout); each suite `skip`s cleanly when unset.

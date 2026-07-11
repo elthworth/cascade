@@ -62,8 +62,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bench-data-dir", default="/root/bench_data",
                    help="Benchmark data dir on the pod.")
     p.add_argument("--bench-device", default="cpu",
-                   help="Device for the Cascade king bench eval ([scoring] cascade_enabled): "
-                        "'cuda' when the trainer box has a GPU, else 'cpu'.")
+                   help="Device for the Cascade king bench eval ([scoring] cascade_enabled). "
+                        "Use 'cuda' on a GPU training box — the full GIFT-Eval + BOOM + TIME "
+                        "battery is only practical on a GPU (BOOM full ≈ 26 min on an RTX 5090); "
+                        "'cpu' is for tests/smoke only.")
     p.add_argument("--bench-interval", type=int, default=0,
                    help="Minimum seconds between benchmark launches (0 = every round). "
                         "Set this above the sweep duration when rounds are tighter than "

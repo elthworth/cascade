@@ -166,9 +166,13 @@ that entry in the *signed* manifest (`manifest.BenchScores`), so every validator
 records the identical values — Cascade selection is deterministic across
 validators rather than each re-running a non-bit-reproducible GPU sweep. A
 validator falls back to scoring the checkpoint itself only when the manifest
-carries no scores (e.g. a trainer predating the hook). The dethrone verdict itself
-stays entirely on the private eval pool; these public-benchmark numbers drive only
-Cascade's warm-start promotion. Cascade is opt-in — `[scoring] cascade_enabled`
+carries no scores (e.g. a trainer predating the hook). The eval is the **full**
+GIFT-Eval + BOOM + TIME battery each round (`[eval] cascade_bench_max_series = 0`;
+BOOM full ≈ 26 min on an RTX 5090, run with `--bench-device cuda`), and TIME's
+Seasonal-Naive baseline — checkpoint-independent — is cached so only the model
+forward is paid per round. The dethrone verdict itself stays entirely on the
+private eval pool; these public-benchmark numbers drive only Cascade's warm-start
+promotion. Cascade is opt-in — `[scoring] cascade_enabled`
 (off by default) — and when off the trainer skips the eval and validators run pure
 KOTH.
 

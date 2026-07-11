@@ -124,7 +124,7 @@ def make_bench_eval_fn(cfg: ChainConfig, *, device: str = "cpu") -> BenchEvalFn:
             project_dir=ec.benchmark_project_dir,
             suites=("gift-eval", "boom", "time"),
             num_samples=ec.benchmark_num_samples or ec.num_samples,
-            max_series=ec.benchmark_max_series,
+            max_series=ec.cascade_bench_max_series,  # 0 = full battery
             device=device,
         )
         scores = extract_bench_scores(report)

@@ -30,6 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .. import cache
 from ..predictor import _load_wrapper
 from ..results import SuiteResult
 
@@ -120,13 +121,18 @@ def _metrics_from_quantiles(dataset, fc_quantiles, ds_config, output_base_dir, s
 
 def _score_one(
     wrapper, name: str, term: str, config, out_dir: str, num_samples: int,
-    batch_size: int = 64,
+    batch_size: int = 64, *, normalize: bool = True,
 ) -> tuple[dict, dict]:
     """Run one TIME task and return ``(model_metrics, seasonal_naive_metrics)``,
     each ``{metric_name: mean_value}`` computed by TIME's own metric code. The
     Seasonal-Naive baseline is scored through the identical saver+metric path, so
     the caller can normalize the model metric by the baseline metric per task (the
-    ratio-then-geomean the GIFT-Eval / BOOM leaderboards — and TIME's own — use)."""
+    ratio-then-geomean the GIFT-Eval / BOOM leaderboards — and TIME's own — use).
+
+    The baseline is checkpoint-independent, so it is cached on disk and computed at
+    most once per task across all rounds/checkpoints (the model forward is the only
+    real per-round cost). ``normalize=False`` skips the baseline entirely (the raw
+    fallback path doesn't need it)."""
     from gluonts.time_feature import get_seasonality
     from timebench.evaluation.data import Dataset, get_dataset_settings
 
@@ -172,23 +178,31 @@ def _score_one(
         ]
     fc_quantiles = np.concatenate(fc, axis=0)  # (N, num_q, V, H)
 
-    # Seasonal-Naive baseline on the SAME instances/grid, scored the SAME way — so
-    # dividing model by baseline per task is apples-to-apples.
-    snaive = np.concatenate(
-        [
-            seasonal_naive_quantiles(d["target"], pred_len, season, len(QUANTILE_LEVELS))[np.newaxis, ...]
-            for d in eval_inputs
-        ],
-        axis=0,
-    )
-
     ds_config = f"{name}/{term}"
     model_metrics = _metrics_from_quantiles(
         dataset, fc_quantiles, ds_config, Path(out_dir) / "model", season, "cascade",
     )
-    snaive_metrics = _metrics_from_quantiles(
-        dataset, snaive, ds_config, Path(out_dir) / "snaive", season, "seasonal_naive",
-    )
+    if not normalize:
+        return model_metrics, {}
+
+    # Seasonal-Naive baseline: checkpoint-independent, so serve it from cache and
+    # only compute (once) on a miss. Scored on the SAME instances/grid through the
+    # SAME saver+metric path, so model÷baseline per task is apples-to-apples.
+    n_q = len(QUANTILE_LEVELS)
+    cache_dir = cache.baseline_cache_dir()
+    snaive_metrics = cache.load_baseline(cache_dir, name, term, pred_len, n_q)
+    if snaive_metrics is None:
+        snaive = np.concatenate(
+            [
+                seasonal_naive_quantiles(d["target"], pred_len, season, n_q)[np.newaxis, ...]
+                for d in eval_inputs
+            ],
+            axis=0,
+        )
+        snaive_metrics = _metrics_from_quantiles(
+            dataset, snaive, ds_config, Path(out_dir) / "snaive", season, "seasonal_naive",
+        )
+        cache.store_baseline(cache_dir, name, term, pred_len, n_q, snaive_metrics)
     return model_metrics, snaive_metrics
 
 
@@ -221,6 +235,11 @@ def run(
         config = load_dataset_config(None)
         wrapper = _load_wrapper(Path(checkpoint_dir), device)
 
+        # ``CASCADE_BENCH_TIME_RAW=1`` forces the legacy raw arithmetic mean (no
+        # Seasonal-Naive normalization) — then the per-task baseline is not even
+        # computed.
+        raw_mode = os.environ.get("CASCADE_BENCH_TIME_RAW", "").strip() in ("1", "true", "yes")
+
         model_rows: list[dict] = []
         snaive_rows: list[dict] = []
         with tempfile.TemporaryDirectory(prefix="cascade-time-") as out_dir:
@@ -230,7 +249,7 @@ def run(
                     # isolated under the shared temp root.
                     model_m, snaive_m = _score_one(
                         wrapper, name, term, config, str(Path(out_dir) / str(j)),
-                        num_samples, batch_size,
+                        num_samples, batch_size, normalize=not raw_mode,
                     )
                 except Exception:  # noqa: BLE001 — one task must not abort the sweep
                     continue
@@ -242,8 +261,6 @@ def run(
 
         # Parity with GIFT-Eval/BOOM (and TIME's own leaderboard): per-task ratio to
         # the Seasonal-Naive baseline, aggregated by the shifted geometric mean.
-        # ``CASCADE_BENCH_TIME_RAW=1`` forces the legacy raw arithmetic mean.
-        raw_mode = os.environ.get("CASCADE_BENCH_TIME_RAW", "").strip() in ("1", "true", "yes")
         metrics: dict = {}
         if not raw_mode:
             metrics = normalize_time(model_rows, snaive_rows)

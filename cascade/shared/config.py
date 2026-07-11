@@ -459,6 +459,16 @@ class StorageConfig:
     # no fallback (plain S3). Make it a PUBLIC dataset so receipts stay auditable
     # during an outage; auth via HF_TOKEN.
     hf_backup_repo: str = ""
+    # Cloudflare R2 (or any S3-compatible) backup of the manifest/receipt bucket.
+    # When ``backup_s3_endpoint`` is set every manifest/receipt write is mirrored
+    # here (dual-write) and reads fall back here when Hippius S3 is unavailable —
+    # a full off-Hippius backup, not just an outage failover (see
+    # cascade.shared.hippius.S3MirrorStore). ``backup_bucket`` defaults to the
+    # primary ``manifest_bucket`` name; ``backup_s3_region`` defaults to R2's
+    # ``"auto"``. Credentials via BACKUP_S3_ACCESS_KEY / BACKUP_S3_SECRET_KEY.
+    backup_bucket: str = ""
+    backup_s3_endpoint: str = ""
+    backup_s3_region: str = ""
 
 
 @dataclass(frozen=True)
@@ -799,6 +809,9 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             pool_s3_endpoint=str(st.get("pool_s3_endpoint", "")),
             pool_s3_region=str(st.get("pool_s3_region", "")),
             hf_backup_repo=str(st.get("hf_backup_repo", "")),
+            backup_bucket=str(st.get("backup_bucket", "")),
+            backup_s3_endpoint=str(st.get("backup_s3_endpoint", "")),
+            backup_s3_region=str(st.get("backup_s3_region", "")),
         ),
         manifest=ManifestConfig(
             trainer_hotkey=str(m["trainer_hotkey"]),

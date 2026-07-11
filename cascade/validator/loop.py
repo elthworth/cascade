@@ -497,12 +497,16 @@ class ValidatorRunner:
         try:
             epoch_start = self._epoch_start_block(manifest)
             epoch_hash = ""
+            current_block: int | None = None
             participants: tuple[Participant, ...] = ()
             try:
                 epoch_hash = client.block_hash(epoch_start)
                 participants = participants_from_commitments(
                     client.poll_commitments(), cutoff_block=epoch_start
                 )
+                # Anchor for the dashboard's next-round countdown (best-effort;
+                # the client extrapolates block→wall-clock from this + as_of).
+                current_block = int(client.current_block())
             except Exception as e:  # noqa: BLE001 — chain context is best-effort
                 log.warning("receipt chain context unavailable for round=%s: %s",
                             manifest.round_id, e)
@@ -546,10 +550,24 @@ class ValidatorRunner:
             # Refresh the dashboard-facing rolling index (best-effort, and inside
             # the outer guard: a listing convenience must never disturb a round).
             try:
+                now_iso = datetime.now(UTC).isoformat(timespec="seconds")
+                # Schedule anchor for the "time until next round" countdown. The
+                # next round begins at the next epoch boundary; the client turns
+                # blocks into wall-clock via block_time_s, extrapolating current_block
+                # from `as_of`. Bittensor blocks are ~12s regardless of epoch_blocks
+                # (testnet shortens epochs, not block time), so it is a constant.
+                chain = {
+                    "as_of": now_iso,
+                    "current_block": current_block,
+                    "epoch_start_block": epoch_start,
+                    "epoch_blocks": int(self.cfg.round.epoch_blocks),
+                    "block_time_s": 12.0,
+                }
                 update_receipt_index(
                     store, summarize_receipt(receipt),
-                    updated_at=datetime.now(UTC).isoformat(timespec="seconds"),
+                    updated_at=now_iso,
                     subnet={"netuid": self.cfg.subnet.netuid, "name": self.cfg.subnet.name},
+                    chain=chain,
                 )
             except Exception as e:  # noqa: BLE001
                 log.warning("receipt index update failed for round=%s: %s",

@@ -921,6 +921,7 @@ def update_receipt_index(
     *,
     updated_at: str = "",
     subnet: dict | None = None,
+    chain: dict | None = None,
     max_keep: int = RECEIPT_INDEX_MAX_KEEP,
 ) -> dict:
     """Append/replace one round in ``receipts/index.json`` and write it public-read.
@@ -928,7 +929,9 @@ def update_receipt_index(
     Idempotent per ``round_id`` (a re-published round replaces its entry), sorted
     by ``epoch_start_block`` then ``round_id`` (chronological — round ids are
     block-hash seeds, not monotonic), and capped at ``max_keep`` most-recent
-    rounds. ``updated_at`` (an ISO stamp) and ``subnet`` (``{"netuid", "name"}``)
+    rounds. ``updated_at`` (an ISO stamp), ``subnet`` (``{"netuid", "name"}``),
+    and ``chain`` (schedule anchor for the next-round countdown:
+    ``{as_of, current_block, epoch_start_block, epoch_blocks, block_time_s}``)
     are optional header fields the dashboard shows. Returns the stored entry.
     """
     entry = dict(summary)
@@ -948,6 +951,8 @@ def update_receipt_index(
         out["updated_at"] = updated_at
     if subnet:
         out["subnet"] = subnet
+    if chain:
+        out["chain"] = chain
 
     text = json.dumps(out, indent=2, sort_keys=True)
     try:

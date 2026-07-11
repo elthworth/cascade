@@ -286,6 +286,13 @@ pool_bucket      = ""                               # e.g. "cascade-eval-pool"
 # publish/pull the pool there; empty = reuse the Hippius S3 endpoint above.
 pool_s3_endpoint = ""
 pool_s3_region   = ""
+# Cloudflare R2 (or any S3-compatible) BACKUP of the manifest/receipt bucket:
+# dual-writes every manifest/receipt to R2 (a full backup, not just an outage
+# failover) and reads fall back there when Hippius S3 is down. Credentials via
+# BACKUP_S3_ACCESS_KEY / BACKUP_S3_SECRET_KEY. See chain.toml for details.
+backup_s3_endpoint = ""                             # e.g. "https://<accountid>.r2.cloudflarestorage.com"
+backup_s3_region   = ""                             # empty = "auto" (R2's region)
+backup_bucket      = ""                             # empty = reuse manifest_bucket name
 
 [manifest]
 # The trainer publishes signed training receipts to the manifest S3 bucket

@@ -347,7 +347,7 @@ hf_backup_repo   = ""                               # e.g. "yourorg/cascade-mani
 # so the mirror always carries a full, current copy — a real backup that also
 # survives S3 data loss, not just downtime. Reads fall back to R2 when Hippius S3
 # is unavailable. Credentials via BACKUP_S3_ACCESS_KEY / BACKUP_S3_SECRET_KEY.
-backup_s3_endpoint = ""                             # e.g. "https://<accountid>.r2.cloudflarestorage.com"
+backup_s3_endpoint = "https://04128c0d5ba104eb6a6b77c898aed78e.r2.cloudflarestorage.com"
 backup_s3_region   = ""                             # empty = "auto" (R2's region)
 backup_bucket      = ""                             # empty = reuse manifest_bucket name
 

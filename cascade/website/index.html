@@ -1090,6 +1090,7 @@ SEED_INDEX.rounds.forEach(function(r){
   if(r.status==="scored"){
     var won=r.challenger_wins_round;
     r.win_rate = won?0.56:0.34; r.wilcoxon_p = won?3e-4:6e-7; r.n_clusters=26;
+    r.boot_p50 = won?0.05:-0.03; r.boot_p95 = won?0.12:0.04;
   }
 });
 SEED_INDEX.chain = { as_of: iso(1), current_block: 4822980,
@@ -1201,6 +1202,11 @@ function renderVerdict(){
       cells.push(stat("Win rate",'<span class="'+wcls+'">'+pct(r.win_rate)+'</span> '+wnote));
     }
     cells.push(stat("LCB vs margin",fmt(r.lcb,3)+' <span class="sub">/ '+fmt(r.margin,3)+'</span>'));
+    if(r.boot_p50!=null){
+      // Bootstrap spread of the relative improvement; LCB is the 5th pct. A large
+      // gap between a positive median and a negative LCB = a fragile verdict.
+      cells.push(stat("Bootstrap spread",fmt(r.lcb,2)+' <span class="sub">p5</span> · <b>'+fmt(r.boot_p50,2)+'</b> <span class="sub">p50</span> · '+fmt(r.boot_p95,2)+' <span class="sub">p95</span>'));
+    }
     cells.push(stat("Windows",r.n_windows!=null?r.n_windows:"--"));
     if(r.n_clusters!=null) cells.push(stat("Feeds",r.n_clusters+' <span class="sub">clusters (eff. n)</span>'));
     if(r.wilcoxon_p!=null) cells.push(stat("Wilcoxon p",pval(r.wilcoxon_p)));

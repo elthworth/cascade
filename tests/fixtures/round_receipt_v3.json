@@ -15192,6 +15192,8 @@
   "training_seed": 15787885796686058747,
   "validator_hotkey": "",
   "verdict": {
+    "boot_p50": 0.4,
+    "boot_p95": 0.4000000000000002,
     "bootstrap_seed": "2269901645662351552",
     "chal_geomean": 0.2278953450950247,
     "challenger_wins_round": true,

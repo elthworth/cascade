@@ -108,9 +108,12 @@ def score_generator(
     from ..validator.evaluator import evaluate_checkpoint
 
     repo = Path(repo_dir)
-    contract = cfg.screen_contract()                      # primary/screen size
     hours = train_hours if train_hours is not None else cfg.round.heat_train_hours
-    token_budget = contract.tokens_for_hours(hours)
+    # for_hours scales the wall-clock guard down with the budget (same contract
+    # the heat screener trains under), so a bug that stalls your generator fails
+    # in minutes locally instead of hanging for the final's full guard.
+    contract = cfg.screen_contract().for_hours(hours)     # primary/screen size
+    token_budget = contract.train_tokens
     n_win = n_windows if n_windows is not None else min(cfg.round.heat_n_windows, cfg.eval.n_windows)
     seeds = RoundSeeds.derive(seed, cfg.training)
     cache = Path(cache_dir)

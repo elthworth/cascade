@@ -186,3 +186,35 @@ def test_validate_corpus_mode_rejects_unknown():
 
     with pytest.raises(ValueError):
         validate_corpus_mode("turbo")
+
+
+def test_for_hours_scales_budget_and_wall_clock_guard(cfg):
+    # A heat/screen contract scales BOTH the token budget and the hard wall-clock
+    # guard to its cheap hours budget — a stalling generator costs minutes of a
+    # heat slot, never the final's max_train_seconds — with a floor for the fixed
+    # overheads and a cap at the pinned contract guard.
+    import pytest
+
+    from cascade.shared.config import HEAT_GUARD_FACTOR, HEAT_GUARD_FLOOR_SECONDS
+
+    c = cfg.training.primary_size
+    heat = c.for_hours(0.5)
+    assert heat.train_tokens == c.tokens_for_hours(0.5)
+    assert heat.max_train_seconds == int(round(HEAT_GUARD_FACTOR * 0.5 * 3600))  # 5400
+    assert heat.max_train_seconds < c.max_train_seconds
+    # tiny testnet budgets hit the overhead floor …
+    assert c.for_hours(0.01).max_train_seconds == HEAT_GUARD_FLOOR_SECONDS
+    # … and a big semifinal budget never EXCEEDS the pinned contract guard
+    assert c.for_hours(10.0).max_train_seconds == c.max_train_seconds
+    with pytest.raises(ValueError):
+        c.for_hours(0.0)
+
+
+def test_heat_num_samples_knob(cfg):
+    # chain.toml ships a cheap ranking-only sample count for the heat screen;
+    # 0 (the default) means "reuse [eval] num_samples".
+    from dataclasses import replace
+
+    assert cfg.round.heat_num_samples == 20
+    bare = replace(cfg.round, heat_num_samples=0)
+    assert (bare.heat_num_samples or cfg.eval.num_samples) == cfg.eval.num_samples

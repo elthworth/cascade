@@ -128,6 +128,15 @@ class SizeSpec:
     d_ff: int = 0
 
 
+# Screen-stage wall-clock guard scaling (see TrainingContractConfig.for_hours):
+# a heat run's hard deadline derives from its own cheap hours budget instead of
+# inheriting the final's ``max_train_seconds``. The derived heat contract is
+# trainer-internal (its checkpoints are screened and discarded, never validated
+# against the pinned contract digest), so these are safety knobs, not consensus.
+HEAT_GUARD_FACTOR = 3.0
+HEAT_GUARD_FLOOR_SECONDS = 900
+
+
 @dataclass(frozen=True)
 class TrainingContractConfig:
     """The fixed training contract — identical for king and challenger.
@@ -227,6 +236,30 @@ class TrainingContractConfig:
         challenger on identical compute and keeps a re-derived run reproducible."""
         return int(round(hours * 3600.0 * self.ref_throughput_tokens_per_s))
 
+    def for_hours(self, hours: float) -> TrainingContractConfig:
+        """This size's contract at a reduced ``hours`` budget — a heat/screen run.
+
+        Scales BOTH knobs together: ``train_tokens`` (via ``target_train_hours``)
+        and the hard wall-clock guard, ``max(HEAT_GUARD_FACTOR × hours,
+        HEAT_GUARD_FLOOR_SECONDS)`` capped at the pinned ``max_train_seconds``.
+        Without this a screen run inherits the final's guard, and one
+        pathologically slow (or adversarially trickling) corpus can hold a heat
+        slot for the final-scale hours at a ~30-min budget — on an elastic pod
+        fleet that is rented GPU time burned per staller. The factor absorbs
+        data-dependent throughput; the floor absorbs the fixed overheads
+        (generator fetch, sandbox startup, first-batch warmup) that do not
+        shrink with the budget — a 6-min testnet heat still needs them. Final
+        runs never come through here; their guard stays the contract value."""
+        if hours <= 0:
+            raise ValueError(f"hours must be positive; got {hours}")
+        guard = max(int(round(HEAT_GUARD_FACTOR * hours * 3600.0)), HEAT_GUARD_FLOOR_SECONDS)
+        return replace(
+            self,
+            target_train_hours=float(hours),
+            max_train_seconds=min(guard, self.max_train_seconds),
+            extra_sizes=(),
+        )
+
     @property
     def train_tokens(self) -> int:
         """Enforced final-stage budget in point-passes: ``target_train_hours`` of
@@ -323,6 +356,12 @@ class RoundConfig:
     round_hours: float = 24.0         # informational: wall-clock span of an epoch
     heat_train_hours: float = 0.5     # cheap screening budget per competitor
     heat_n_windows: int = 256         # eval windows the heat screens on (≤ [eval] n_windows)
+    # Sample forecasts per window in the heat screen. The heat only RANKS the
+    # field, and CRPS rankings are stable at far fewer samples than the final
+    # verdict needs — the screen eval runs sequentially on the orchestrator's
+    # CPU, so this is the knob that keeps a large field's screening from
+    # rivalling its training time. 0 ⇒ reuse [eval] num_samples.
+    heat_num_samples: int = 0
     finalists: int = 1                # challengers promoted from the heat to the final
     screen_size: str = ""             # arch_preset the heat screens at ("" ⇒ primary)
     throne_sizes: tuple[str, ...] = ()  # arch_presets the final trains/judges at (() ⇒ [primary])
@@ -788,6 +827,7 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             round_hours=float(r.get("round_hours", 24.0)),
             heat_train_hours=float(r.get("heat_train_hours", 0.5)),
             heat_n_windows=int(r.get("heat_n_windows", 256)),
+            heat_num_samples=int(r.get("heat_num_samples", 0)),
             finalists=int(r.get("finalists", 1)),
             screen_size=str(r.get("screen_size", "")),
             throne_sizes=tuple(str(x) for x in r.get("throne_sizes", ())),

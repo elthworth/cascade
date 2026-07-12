@@ -183,6 +183,11 @@ epoch_blocks     = 7200   # ≈24h at a 12s block time (set to your network's bl
 round_hours      = 24.0   # informational: wall-clock span of an epoch
 heat_train_hours = 0.5    # cheap screening budget per competitor (on screen_size)
 heat_n_windows   = 256    # eval windows the heat screens on (cheaper than the final's n_windows)
+heat_num_samples = 20     # sample forecasts per window in the heat screen (0 = reuse [eval]
+                          # num_samples). The heat only RANKS the field — CRPS rankings are
+                          # stable at ~20 samples — and the screen eval runs sequentially on
+                          # the orchestrator CPU, so this keeps a large field's screening from
+                          # rivalling its training time. The final verdict still uses [eval].
 finalists        = 1      # challengers promoted from the heat to the 3h final (top-N)
 # Anti-spam: 1 hotkey = 1 submission for the lifetime of the trainer state. A
 # challenger hotkey that has entered a heat is burned (persisted); it must

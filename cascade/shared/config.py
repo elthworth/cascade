@@ -379,6 +379,13 @@ class EvalConfig:
     gift_gate_num_samples: int = 0
     gift_gate_data_dir: str = ""
     gift_gate_timeout_s: int = 3600
+    # Cascade king-eval coverage (see cascade.validator.cascade). Cap on datasets
+    # per suite when the trainer scores the king's checkpoint on GIFT-Eval / BOOM /
+    # TIME. ``0`` = the FULL battery (all configs) — the default, since Cascade's
+    # promotion should see the whole eval. Kept separate from the log-only
+    # ``benchmark_max_series`` so tightening telemetry never quietly shrinks the
+    # Cascade decision. Set a positive cap only to speed up testnet iteration.
+    cascade_bench_max_series: int = 0
 
 
 @dataclass(frozen=True)
@@ -427,6 +434,17 @@ class ScoringConfig:
     gift_gate_mode: str = "off"
     gift_gate_tolerance: float = 0.03
     gift_gate_min_configs: int = 15
+    # Cascade — king-reign promotion / warm-start (see cascade.validator.cascade).
+    # ``cascade_enabled`` is the master switch: off (default) ⇒ pure KOTH, no
+    # reign clock, no public-benchmark scoring, no warm-start promotion. When on,
+    # and the reigning king holds the throne ``cascade_reign_days`` CONSECUTIVE
+    # WALL-CLOCK DAYS undethroned, the reign's best checkpoint (lowest geomean of
+    # the six GIFT-Eval / BOOM / TIME CRPS+MASE numbers the trainer stamps onto the
+    # signed manifest) is installed as the warm-start init and the throne is
+    # vacated to re-open the competition from it. The reign clock is wall-clock, so
+    # it is persisted and survives restarts.
+    cascade_enabled: bool = False
+    cascade_reign_days: int = 7
 
 
 @dataclass(frozen=True)
@@ -525,6 +543,13 @@ class ValidatorConfig:
     poll_seconds: int
     hf_cache_seconds: int
     state_db_path: str
+    # Cascade persistence (see cascade.validator.cascade). ``cascade_state_db_path``
+    # holds the reign clock + reign checkpoint log (JSON) so Cascade survives
+    # restarts; ``warm_start_init_path`` is where a fired Cascade writes the
+    # promoted checkpoint pointer for the trainer to warm-start every subsequent
+    # round from. Defaults keep older chain.toml loadable.
+    cascade_state_db_path: str = "cascade_state.json"
+    warm_start_init_path: str = "warm_start_init.json"
 
 
 @dataclass(frozen=True)
@@ -786,6 +811,7 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             gift_gate_num_samples=int(e.get("gift_gate_num_samples", 0)),
             gift_gate_data_dir=str(e.get("gift_gate_data_dir", "")),
             gift_gate_timeout_s=int(e.get("gift_gate_timeout_s", 3600)),
+            cascade_bench_max_series=int(e.get("cascade_bench_max_series", 0)),
         ),
         scoring=ScoringConfig(
             win_margin_start=float(s["win_margin_start"]),
@@ -803,6 +829,8 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             gift_gate_mode=_gift_gate_mode(s.get("gift_gate_mode", "off")),
             gift_gate_tolerance=float(s.get("gift_gate_tolerance", 0.03)),
             gift_gate_min_configs=int(s.get("gift_gate_min_configs", 15)),
+            cascade_enabled=bool(s.get("cascade_enabled", False)),
+            cascade_reign_days=int(s.get("cascade_reign_days", 7)),
         ),
         dependencies=DependencyConfig(
             max_packages=int(d["max_packages"]),
@@ -836,6 +864,8 @@ def load_chain_config(path: Path | str | None = None) -> ChainConfig:
             poll_seconds=int(v["poll_seconds"]),
             hf_cache_seconds=int(v["hf_cache_seconds"]),
             state_db_path=str(v["state_db_path"]),
+            cascade_state_db_path=str(v.get("cascade_state_db_path", "cascade_state.json")),
+            warm_start_init_path=str(v.get("warm_start_init_path", "warm_start_init.json")),
         ),
         wandb=WandbConfig(
             enabled=bool(wb.get("enabled", False)),

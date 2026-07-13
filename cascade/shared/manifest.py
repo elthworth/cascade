@@ -273,7 +273,7 @@ class TrainingManifest:
     entries: list[TrainedEntry] = field(default_factory=list)
     manifest_version: int = MANIFEST_VERSION
     heat: HeatResult | None = None
-    signature: str | None = None  # trainer_hotkey signature over the canonical body; TODO
+    signature: str | None = None  # trainer_hotkey signature over canonical_body()
 
     def entry_for_role(self, role: str) -> TrainedEntry | None:
         for e in self.entries:

@@ -114,7 +114,7 @@ and set weights:
 new manifest round=… entries=2 (king:uid3,challenger:uid2); gating + scoring …
 round=… lcb=0.0000 margin=0.0200 win=False loss king=… tenure=…
 round=… weights set: reward_uids=[3] (n_uids=9, burn_uid=0)
-published scored receipt round=… signed=True → s3://…/receipts/round-….json
+published scored receipt round=… signed=True → s3://…/receipts/<hotkey>/round-….json
 ```
 
 Run it under a process manager (systemd, tmux, supervisor) so it survives
@@ -127,8 +127,8 @@ Three signals:
 
 1. **Weights on chain** — `round=… weights set …` in the log, and
    `btcli wallet overview` / the metagraph shows your hotkey emitting weight.
-2. **Receipts published** — a signed `receipts/round-<id>.json` per round in the
-   manifest bucket (the dashboard reads these).
+2. **Receipts published** — a signed `receipts/<your-hotkey>/round-<id>.json` per
+   round in the manifest bucket (the dashboard reads these via the shared index).
 3. **Audit as health check** — verify your own latest round end to end:
 
    ```bash

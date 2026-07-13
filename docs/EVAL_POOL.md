@@ -137,15 +137,26 @@ scraper cron ─► raw-data bucket ─► cascade-pool publish ─► pool buck
                 (parquet+catalog)  (sync, build, validate)  (tar+index)   effective_block
 ```
 
-1. The forge cron ends with `scripts/publish_data_bucket.sh` (in the forge
-   repo): an `aws s3 sync` of `data/` + `sources.yaml` to a **private** bucket.
+1. The forge repo's scheduled scrape workflow (`.github/workflows/scrape-data.yml`)
+   ends with `src/sources/sync_storage.py`: a boto3 mirror of `data/` +
+   `sources.yaml` to the **private** Hippius bucket `tsbench-forge-sources`
+   (endpoint `https://s3.hippius.com`, credentials `HIPPIUS_S3_ACCESS_KEY` /
+   `HIPPIUS_S3_SECRET_KEY`). That bucket is the one canonical raw-data relay;
+   the forge repo's `scripts/publish_data_bucket.sh` is only for self-managed
+   alternatives and must then target the same bucket the step below syncs.
 2. The publish cron here syncs that bucket down and points the source at the
    mirror before building:
 
 ```bash
-aws s3 sync "s3://$TSFORGE_BUCKET" ./tsforge --exact-timestamps
+: "${TSFORGE_BUCKET:=tsbench-forge-sources}" "${TSFORGE_S3_ENDPOINT:=https://s3.hippius.com}"
+AWS_ACCESS_KEY_ID=$HIPPIUS_S3_ACCESS_KEY AWS_SECRET_ACCESS_KEY=$HIPPIUS_S3_SECRET_KEY \
+  aws s3 sync "s3://$TSFORGE_BUCKET" ./tsforge --endpoint-url "$TSFORGE_S3_ENDPOINT" --exact-timestamps
 TSFORGE_DIR=./tsforge cascade-pool publish --sources tsbench_forge --effective-block auto
 ```
+
+Only the owner orchestrator holds forge-bucket credentials. Validators never
+touch this bucket (or need the forge repo at all) — their sole data dependency
+is the built pool snapshot published downstream.
 
 Install the producer extra first: `pip install "cascade[pool-forge]"` (pyarrow
 + pyyaml + pandas; validators never need it — they consume the built `.npy`

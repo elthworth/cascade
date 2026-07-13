@@ -498,3 +498,22 @@ def test_plan_payload_counts_the_real_eligible_field(cfg, tmp_path):
     # burned hotkeys drop out of the eligible count
     (tmp_path / cfg.round.submissions_db_path).write_text(json.dumps(["b"]), encoding="utf-8")
     assert _plan_payload(cfg, _StubClient(), tmp_path)["eligible_challengers"] == 0
+
+
+def test_screen_block_derived_when_cutoff_omitted(cfg, tmp_path, monkeypatch):
+    # Direct callers may omit cutoff_block; the screener must still get the
+    # derived epoch boundary (never None, which a bucket pool reads as "newest").
+    _patch_train_boundaries(monkeypatch)
+    seen_blocks = []
+
+    def screen(ckpt_dir, gen, base_seed, block=None):
+        seen_blocks.append(block)
+        return {"b": 0.9, "c": 0.2, "d": 0.5}[gen.hotkey]
+
+    runner = TrainerRunner(cfg=cfg, base_trainer=_FakeBaseTrainer(), work_root=tmp_path,
+                           use_sandbox=False, screen_fn=screen)
+    commits = [_commit(0, "a", REF_A, 5), _commit(1, "b", REF_B, 6),
+               _commit(2, "c", REF_C, 7), _commit(3, "d", REF_D, 8)]
+    block = 2 * cfg.round.epoch_blocks + 123
+    runner.run_round(commits, king_hotkey="a", base_seed=1, block=block)
+    assert seen_blocks == [2 * cfg.round.epoch_blocks] * 3

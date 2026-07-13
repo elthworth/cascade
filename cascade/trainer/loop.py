@@ -63,7 +63,7 @@ from .wandb_sink import open_wandb_run
 # geomean(CRPS, MASE) on the held-out windows). Injected so the trainer's
 # screening stays a testable boundary — the default wiring (torch evaluator +
 # eval pool) is attached in cascade.trainer.main.
-ScreenFn = Callable[[Path, "ResolvedGenerator", int, "int | None"], float]
+ScreenFn = Callable[[Path, "ResolvedGenerator", int, int | None], float]
 
 # Scores the king's trained checkpoint on the public suites (GIFT-Eval / BOOM /
 # TIME) for Cascade, given its local checkpoint dir. Returns the six-number
@@ -593,9 +593,19 @@ class TrainerRunner:
 
         seeds = RoundSeeds.derive(base_seed, self.cfg.training)
 
+        # The screener keys a daily-snapshot eval pool by the round's epoch
+        # boundary. The live loop supplies it as ``cutoff_block``; derive it for
+        # direct callers (scripts, operators) so a bucket-backed pool never
+        # silently screens on a NEWER snapshot than the validator will judge the
+        # final on (``None`` would mean "newest").
+        screen_block = cutoff_block
+        if screen_block is None:
+            epoch_blocks = max(1, self.cfg.round.epoch_blocks)
+            screen_block = (block // epoch_blocks) * epoch_blocks
+
         eligible = self._filter_burned_challengers(plan.challengers)
         finalists, heat = self._run_heat(eligible, seeds, block,
-                                         screen_block=cutoff_block)
+                                         screen_block=screen_block)
         # Burn only now, after the heat stage completed: every eligible entrant
         # got its screening attempt (or its pass-through to the final). A crash
         # mid-heat leaves the burn set untouched, so no miner's one lifetime

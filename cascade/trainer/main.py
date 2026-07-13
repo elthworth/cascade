@@ -184,7 +184,10 @@ def main(argv: list[str] | None = None) -> int:
 
     bench_plan = None
     if args.post_round_benchmarks:
-        if not remote_hosts:
+        # Key off the FLAG, not the startup-loaded list: with an elastic fleet
+        # the hosts file may be empty until a round's provisioner fills it, and
+        # run_forever guards each launch on the round's live fleet anyway.
+        if args.remote_hosts is None:
             log.warning("--post-round-benchmarks needs --remote-hosts; disabling")
         else:
             from .bench_hook import BenchPlan

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from deploy.provision import (
+from cascade.provision import (
     DEFAULT_FORWARD_ENV,
     LaunchSpec,
     LiumProvider,

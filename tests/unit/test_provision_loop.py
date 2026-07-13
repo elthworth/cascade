@@ -406,6 +406,31 @@ def test_reconcile_never_touches_untagged_pods(tmp_path):
     assert prov.terminated == []
 
 
+def test_reconcile_never_touches_hand_rented_cascade_pods(tmp_path):
+    """The 2026-07-13 incident: operators' pods legitimately share the
+    ``cascade-`` prefix (cascade-worker, cascade-final-b) but are NOT the
+    provisioner's — only the full cascade-<round>-<stage> scheme is reapable."""
+    prov = FakeProvider("lium")
+    prov.live["cascade-worker"] = PodAddress("10.9.9.1", 22)
+    prov.live["cascade-final-b"] = PodAddress("10.9.9.2", 22)
+    prov.live["cascade-heat-2"] = PodAddress("10.9.9.3", 22)   # no round id ⇒ not ours
+    prov.live["cascade-900-heat-zombie"] = PodAddress("10.9.9.4", 22)  # ours, orphaned
+    loop, _ = make_loop(tmp_path, providers={"lium": prov}, block=100)
+    loop.run_once()
+    assert prov.terminated == ["cascade-900-heat-zombie"]
+
+
+def test_dry_run_never_terminates_anything(tmp_path):
+    """--dry-run must gate EVERY provider mutation, not just rentals: the
+    reaper (and teardown) once terminated a live pod during a dry-run demo."""
+    prov = FakeProvider("lium")
+    prov.live["cascade-900-heat-zombie"] = PodAddress("10.9.9.4", 22)
+    loop, _ = make_loop(tmp_path, providers={"lium": prov}, block=100)
+    loop.dry_run = True
+    loop.run_once()
+    assert prov.terminated == []
+
+
 def test_plan_failure_retries_next_tick(tmp_path):
     prov = FakeProvider("lium")
     calls = []

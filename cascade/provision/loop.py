@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -88,6 +89,18 @@ from .state import (
 log = logging.getLogger("cascade.provision.loop")
 
 POD_TAG = "cascade-"                       # every rented pod's name starts with this
+
+# The FULL naming scheme of pods this service rents: cascade-<round_id>-<stage>
+# (+ optional -rN replacement / -gN lane suffixes). The orphan reaper matches on
+# this — never on the bare POD_TAG prefix, which operators' hand-rented pods
+# (cascade-worker, cascade-final-b, cascade-heat-2) legitimately share. Reaping
+# by bare prefix terminated a live hand-rented final pod on 2026-07-13.
+_PROVISIONER_POD_RE = re.compile(r"^cascade-\d+-(heat|final)(-|$)")
+
+
+def is_provisioner_pod_name(name: str) -> bool:
+    """True only for pod names this service itself creates (see _PROVISIONER_POD_RE)."""
+    return _PROVISIONER_POD_RE.match(str(name)) is not None
 
 
 @dataclass(frozen=True)
@@ -463,6 +476,10 @@ class ProvisionerLoop:
                     log.error("no adapter for provider %r — pod %s may be LEAKED",
                               inst.provider, inst.instance_id)
                     continue
+                if self.dry_run:
+                    log.info("[dry-run] WOULD terminate %s pod %s", inst.stage,
+                             inst.instance_id)
+                    continue
                 try:
                     prov.terminate(inst.instance_id)
                 except Exception as e:  # noqa: BLE001 — keep tearing down the rest
@@ -534,24 +551,37 @@ class ProvisionerLoop:
     # ── RECONCILE ────────────────────────────────────────────────────────────
 
     def _reconcile_orphans(self) -> None:
-        """Kill live ``cascade-``-tagged pods the ledger does not own.
+        """Kill live pods the provisioner RENTED but the ledger does not own.
 
         Runs EVERY cycle (not just at startup): the hole it closes — a crash
         between a provider's create call and the ledger save — can open at any
-        time, and an orphan bills until someone notices."""
+        time, and an orphan bills until someone notices.
+
+        Only names matching the provisioner's own scheme
+        (``cascade-<round_id>-<stage>…``) are candidates: an operator's
+        hand-rented pods legitimately share the ``cascade-`` prefix
+        (``cascade-worker``, ``cascade-final-b``) and must NEVER be reaped —
+        the reaper's mandate is strictly "pods this service created and then
+        lost track of," not "pods that look cascade-related." And like every
+        provider mutation, termination is gated on ``dry_run``.
+        """
         owned = owned_ids(self._state) if self._state is not None else set()
         for name, prov in self.providers.items():
             lister = getattr(prov, "list_tagged", None)
             if lister is None:
                 continue
             try:
-                live = set(lister(POD_TAG))
+                live = {p for p in lister(POD_TAG) if is_provisioner_pod_name(p)}
             except Exception as e:  # noqa: BLE001 — a down adapter reconciles next cycle
                 log.warning("provider %s list_tagged failed (%s); skipping reconcile", name, e)
                 continue
             for orphan in reconcile(owned, live):
+                if self.dry_run:
+                    log.info("[dry-run] reconcile: WOULD terminate orphan pod %s on %s",
+                             orphan, name)
+                    continue
                 log.warning("reconcile: terminating ORPHAN pod %s on %s "
-                            "(tagged %s* but not in the ledger)", orphan, name, POD_TAG)
+                            "(provisioner-named but not in the ledger)", orphan, name)
                 try:
                     prov.terminate(orphan)
                 except Exception as e:  # noqa: BLE001
@@ -568,10 +598,13 @@ class ProvisionerLoop:
         return next(i for i in self._state.instances if i.instance_id == pid)
 
     def _terminate_and_drop(self, prov: object, pid: str) -> None:
-        try:
-            prov.terminate(pid)
-        except Exception as e:  # noqa: BLE001 — reconcile/TTL will retry
-            log.error("terminate %s failed: %s", pid, e)
+        if self.dry_run:
+            log.info("[dry-run] WOULD terminate pod %s", pid)
+        else:
+            try:
+                prov.terminate(pid)
+            except Exception as e:  # noqa: BLE001 — reconcile/TTL will retry
+                log.error("terminate %s failed: %s", pid, e)
         self._state = drop_instances(self._state, {pid})
         self._addrs.pop(pid, None)
         self._save()

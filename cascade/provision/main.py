@@ -1,0 +1,294 @@
+"""``cascade-provisioner`` console script — the per-round pod-rental service.
+
+Runs BESIDE the trainer (same box or same work-root mount), never inside it:
+the trainer holds the wallet and the round logic; this service holds only
+provider API keys and an SSH key, and its whole job is to make the trainer's
+``--remote-hosts`` file point at healthy rented GPUs at the right time and to
+make the bill stop the moment each stage is done.
+
+Configuration is a small TOML (see ``scripts/provision.example.toml``) for the
+rental policy plus the trainer's own ``chain.toml`` for the round shape
+(``[round] epoch_blocks``, ``[training] target_train_hours``, the image-digest
+pin). ``--dry-run`` walks the full trigger→count→size→budget pipeline and logs
+what it WOULD rent, renting nothing.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import shlex
+import subprocess
+import sys
+from collections.abc import Sequence
+from pathlib import Path
+
+from ..shared.config import load_chain_config
+from .core import (
+    DEFAULT_FORWARD_ENV,
+    DEFAULT_REMOTE_PYTHON,
+    DEFAULT_WORKDIR,
+    ProvisionError,
+    _read_pubkey,
+    build_providers,
+    validate_digest_pinned,
+    wait_ssh_reachable,
+)
+from .health import HealthGate, HealthReport
+from .loop import ProvisionerLoop, RenderSettings, parse_plan_output
+from .policy import ProvisionPolicy, StagePolicy
+
+log = logging.getLogger("cascade.provision.main")
+
+
+# ── config (pure parse + validation; tested) ─────────────────────────────────
+
+
+def build_stage_policy(raw: dict, stage: str) -> StagePolicy:
+    """One ``[provisioner.heat|final]`` table → a validated :class:`StagePolicy`."""
+    sku = str(raw.get("sku", "")).strip()
+    if not sku:
+        raise ProvisionError(f"[provisioner.{stage}] sku must be non-empty (the exact "
+                             "nvidia-smi device string, e.g. 'NVIDIA L40S')")
+    gpus = int(raw.get("gpus_per_pod", 1))
+    if gpus < 1:
+        raise ProvisionError(f"[provisioner.{stage}] gpus_per_pod must be >= 1; got {gpus}")
+    max_pods = int(raw.get("max_pods", 1))
+    if max_pods < 1:
+        raise ProvisionError(f"[provisioner.{stage}] max_pods must be >= 1; got {max_pods}")
+    price = float(raw.get("max_price_hr", 0))
+    if price <= 0:
+        raise ProvisionError(f"[provisioner.{stage}] max_price_hr must be > 0; got {price}")
+    providers = tuple(str(p) for p in raw.get("providers", ("lium", "shadeform")))
+    if not providers:
+        raise ProvisionError(f"[provisioner.{stage}] providers must list at least one adapter")
+    overhead = float(raw.get("slot_overhead", 1.3))
+    if overhead < 1.0:
+        raise ProvisionError(f"[provisioner.{stage}] slot_overhead must be >= 1.0; got {overhead}")
+    return StagePolicy(sku=sku, gpus_per_pod=gpus, max_pods=max_pods,
+                       providers=providers, max_price_hr=price, slot_overhead=overhead)
+
+
+def build_policy(raw: dict, *, epoch_blocks: int) -> ProvisionPolicy:
+    """The ``[provisioner]`` tree → a validated :class:`ProvisionPolicy`.
+
+    ``epoch_blocks`` comes from chain.toml so the margin check runs against the
+    REAL round cadence: a margin >= the epoch would trigger permanently.
+    """
+    top = raw.get("provisioner", raw)
+    for stage in ("heat", "final"):
+        if stage not in top:
+            raise ProvisionError(f"provision config needs a [provisioner.{stage}] table")
+    margin = int(top.get("trigger_margin_blocks", 25))
+    if not 0 < margin < epoch_blocks:
+        raise ProvisionError(
+            f"trigger_margin_blocks={margin} must be in (0, epoch_blocks={epoch_blocks})")
+    max_spend = float(top.get("max_spend_per_round", 0))
+    if max_spend <= 0:
+        raise ProvisionError(f"max_spend_per_round must be > 0 USD; got {max_spend}")
+    ttl_epochs = int(top.get("ttl_epochs", 1))
+    if ttl_epochs < 1:
+        raise ProvisionError(f"ttl_epochs must be >= 1; got {ttl_epochs}")
+    return ProvisionPolicy(
+        heat=build_stage_policy(top["heat"], "heat"),
+        final=build_stage_policy(top["final"], "final"),
+        trigger_margin_blocks=margin,
+        max_spend_per_round=max_spend,
+        ttl_epochs=ttl_epochs,
+    )
+
+
+# ── real boundaries (adapter surface, not unit-tested) ───────────────────────
+
+
+def make_plan_fn(chain_toml: Path | None, work_root: Path) -> callable:
+    """The COUNT boundary: run ``cascade-trainer --plan-only`` and parse its JSON.
+
+    Through ``uv run`` so the trainer resolves in the project venv regardless
+    of how the provisioner itself was launched (systemd's PATH is minimal).
+    The subprocess needs no wallet and no GPU — it only counts the field.
+    """
+    argv = ["uv", "run", "cascade-trainer", "--plan-only", "--work-root", str(work_root)]
+    if chain_toml is not None:
+        argv += ["--chain-toml", str(chain_toml)]
+
+    def plan() -> dict:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=600)
+        if proc.returncode != 0:
+            raise ProvisionError(
+                f"--plan-only failed (rc={proc.returncode}): {(proc.stderr or '')[-500:]}")
+        return parse_plan_output(proc.stdout or "")
+
+    return plan
+
+
+def make_health_check(policy: ProvisionPolicy, render: RenderSettings, *,
+                      image_digest: str, min_disk_gb: float,
+                      hippius_probe) -> callable:
+    """Bind the pure :class:`HealthGate` to a real ``ssh`` transport per pod."""
+    from ..trainer.remote import RemoteHost, build_ssh_argv, run_ssh
+
+    gates = {
+        stage: HealthGate(
+            sku=sp.sku, gpus=sp.gpus_per_pod,
+            remote_python=render.remote_python, workdir=render.workdir,
+            image_digest=image_digest, min_disk_gb=min_disk_gb,
+            hippius_probe=hippius_probe,
+        )
+        for stage, sp in (("heat", policy.heat), ("final", policy.final))
+    }
+
+    def check(addr, stage: str) -> HealthReport:
+        host = RemoteHost(name="health-probe", host=addr.ip, port=addr.ssh_port,
+                          key_path=render.key_path, workdir=render.workdir)
+
+        def run(remote_argv: Sequence[str]):
+            return run_ssh(build_ssh_argv(host, shlex.join(list(remote_argv))), timeout=120)
+
+        return gates[stage].check(run)
+
+    return check
+
+
+def make_hippius_probe(storage) -> callable:
+    """A reachability probe for the manifest store (health check #6).
+
+    Reads the tiny ``latest.json`` pointer: if that round-trips, the pods'
+    checkpoint pushes and generator pulls have a live storage path. Built
+    lazily so a dry-run without Hippius credentials still works.
+    """
+    from ..shared.hippius import MANIFEST_LATEST_KEY, open_manifest_store
+
+    store = open_manifest_store(storage)
+
+    def probe() -> bool:
+        try:
+            store.get_text(MANIFEST_LATEST_KEY)
+            return True
+        except Exception:  # noqa: BLE001 — unreachable or unauthorised: same verdict
+            return False
+
+    return probe
+
+
+# ── CLI ──────────────────────────────────────────────────────────────────────
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="cascade-provisioner",
+        description="Per-round GPU pod provisioner for the cascade trainer.",
+    )
+    p.add_argument("--config", type=Path, required=True,
+                   help="Provisioner TOML (see scripts/provision.example.toml).")
+    p.add_argument("--chain-toml", type=Path, default=None,
+                   help="The trainer's chain.toml (round cadence, budgets, image pin).")
+    p.add_argument("--work-root", type=Path, default=Path("./_train_work"),
+                   help="The TRAINER's work root (shared): heat_complete.json is watched here.")
+    p.add_argument("--network", default="finney")
+    p.add_argument("--dry-run", action="store_true",
+                   help="Walk trigger→count→size→budget and log intended rentals; rent nothing.")
+    p.add_argument("--once", action="store_true", help="Run a single cycle and exit.")
+    p.add_argument("--log-level", default="INFO",
+                   choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    from ..shared.env import load_env_files
+
+    load_env_files()
+    args = _build_parser().parse_args(argv)
+    logging.basicConfig(level=args.log_level,
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    try:
+        return _run(args)
+    except ProvisionError as e:
+        log.error("%s", e)
+        return 2
+    except KeyboardInterrupt:
+        log.warning("interrupted — rented pods stay in the ledger; restart to resume teardown")
+        return 130
+
+
+def _run(args) -> int:
+    import tomllib
+
+    cfg = load_chain_config(args.chain_toml)
+    raw = tomllib.loads(Path(args.config).read_text(encoding="utf-8"))
+    top = raw.get("provisioner", {})
+    policy = build_policy(raw, epoch_blocks=cfg.round.epoch_blocks)
+
+    image = str(top.get("image", ""))
+    validate_digest_pinned(image)
+    pubkey_arg = str(top.get("ssh_pubkey", ""))
+    if not pubkey_arg:
+        raise ProvisionError("[provisioner] ssh_pubkey is required (inline key or .pub path)")
+    render = RenderSettings(
+        image=image,
+        ssh_pubkey=_read_pubkey(pubkey_arg),
+        key_path=str(top.get("ssh_key_path",
+                             pubkey_arg[:-4] if pubkey_arg.endswith(".pub") else "")),
+        forward_env=tuple(top.get("forward_env", DEFAULT_FORWARD_ENV)),
+        remote_python=str(top.get("remote_python", DEFAULT_REMOTE_PYTHON)),
+        workdir=str(top.get("workdir", DEFAULT_WORKDIR)),
+        chain_toml=(str(top["chain_toml"]) if top.get("chain_toml") else None),
+        ssh_port=int(top.get("ssh_port", 22)),
+    )
+    if not render.key_path:
+        raise ProvisionError("[provisioner] ssh_key_path is required (private key for hosts.toml)")
+
+    hosts_path = Path(top.get("hosts_path", "hosts.toml"))
+    work_root = Path(args.work_root)
+    state_path = Path(top.get("state_path", work_root / "provisioner_state.json"))
+
+    provider_names = list(dict.fromkeys([*policy.heat.providers, *policy.final.providers]))
+    providers = {p.name: p for p in build_providers(provider_names)}
+
+    hippius_probe = None
+    manifest_store = None
+    if not args.dry_run:
+        from ..shared.hippius import open_manifest_store
+
+        manifest_store = open_manifest_store(cfg.storage)
+        hippius_probe = make_hippius_probe(cfg.storage)
+
+    from ..shared.chain import ChainClient
+
+    loop = ProvisionerLoop(
+        policy=policy,
+        providers=providers,
+        chain_client=ChainClient.from_config(cfg, network=args.network),
+        plan_fn=make_plan_fn(args.chain_toml, work_root),
+        render=render,
+        hosts_path=hosts_path,
+        work_root=work_root,
+        state_path=state_path,
+        epoch_blocks=cfg.round.epoch_blocks,
+        final_hours=cfg.training.target_train_hours,
+        manifest_store=manifest_store,
+        health_check=make_health_check(
+            policy, render,
+            image_digest=cfg.training.train_image_digest,
+            min_disk_gb=float(top.get("min_disk_gb", 20.0)),
+            hippius_probe=hippius_probe,
+        ),
+        ssh_probe=lambda ip, port: wait_ssh_reachable(ip, port, timeout=300.0),
+        poll_seconds=float(top.get("poll_seconds", 30.0)),
+        dry_run=bool(args.dry_run),
+    )
+    log.info("provisioner up: heat=%d×%s(%dx) final=%d×%s(%dx) margin=%d blocks "
+             "cap=$%.2f/round ttl=%d epoch(s)%s",
+             policy.heat.max_pods, policy.heat.sku, policy.heat.gpus_per_pod,
+             policy.final.max_pods, policy.final.sku, policy.final.gpus_per_pod,
+             policy.trigger_margin_blocks, policy.max_spend_per_round,
+             policy.ttl_epochs, " [DRY RUN]" if args.dry_run else "")
+    if args.once:
+        loop.run_once()
+        return 0
+    loop.run_forever()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

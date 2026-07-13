@@ -336,6 +336,39 @@ def pick_shadeform_offer(types_json: dict, sku: str) -> dict | None:
     return offers[0][1]
 
 
+def shadeform_offer_price_usd_hr(types_json: dict, sku: str) -> float | None:
+    """Cheapest available hourly price for ``sku`` in USD/hr (``None`` if none).
+
+    The API reports ``hourly_price`` in CENTS; the provisioner's budget breaker
+    (``policy.within_budget``) works in USD, so convert here — a silent
+    cents-as-dollars mixup would either 100× the projection (refusing every
+    round) or 1/100 it (defeating the breaker).
+    """
+    prices = [
+        int(t.get("hourly_price", 1 << 30))
+        for t in types_json.get("instance_types", [])
+        if str(t.get("configuration", {}).get("gpu_type", "")).upper() == sku.upper()
+        and any(a.get("available") for a in t.get("availability", []))
+    ]
+    return min(prices) / 100.0 if prices else None
+
+
+def filter_tagged_names(pods: Sequence[dict], prefix: str, *, id_key: str = "name") -> list[str]:
+    """The ``id_key`` of every pod whose ``name`` starts with ``prefix``.
+
+    The orphan-reconcile primitive shared by both adapters: a provider listing
+    is reduced to just the handles that carry OUR tag, so a shared marketplace
+    account's unrelated pods are never candidates for termination.
+    """
+    out = []
+    for p in pods:
+        if str(p.get("name", "")).startswith(prefix):
+            handle = p.get(id_key) or p.get("name")
+            if handle:
+                out.append(str(handle))
+    return out
+
+
 def shadeform_create_body(spec: LaunchSpec, offer: dict, *, name: str) -> dict:
     """Build the ``POST /instances/create`` body for one pod of ``spec``.
 
@@ -518,6 +551,10 @@ class LiumProvider:
             # Idempotent: an already-gone pod is success, not a leak.
             log.warning("lium rm %s: %s (treating as already terminated)", pod_id, e)
 
+    def list_tagged(self, prefix: str) -> list[str]:
+        """Live pod names starting with ``prefix`` (Lium addresses pods by name)."""
+        return filter_tagged_names(self._list_pods(), prefix, id_key="name")
+
 
 # ── Shadeform adapter (REST) ─────────────────────────────────────────────────
 
@@ -611,6 +648,17 @@ class ShadeformProvider:
             log.info("shadeform delete %s", pod_id)
         except Exception as e:  # noqa: BLE001 — idempotent teardown, already-gone is fine
             log.warning("shadeform delete %s: %s (treating as already terminated)", pod_id, e)
+
+    def list_tagged(self, prefix: str) -> list[str]:
+        """Live instance IDs whose ``name`` starts with ``prefix`` (delete takes the id)."""
+        return filter_tagged_names(
+            self._get("/instances").get("instances", []), prefix, id_key="id"
+        )
+
+    def offer_price(self, sku: str) -> float | None:
+        """Cheapest available USD/hr for ``sku`` (the budget breaker's input)."""
+        types = self._get("/instances/types", {"gpu_type": sku, "available": "true"})
+        return shadeform_offer_price_usd_hr(types, sku)
 
 
 _PROVIDER_FACTORIES: dict[str, Callable[[], Provider]] = {

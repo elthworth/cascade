@@ -245,3 +245,17 @@ def test_container_rejects_oversized_output(tmp_path, small_cfg):
     with pytest.raises(CorpusError, match="generator_output_rejected"):
         run_in_sandbox(repo, 0, _live_container_cfg(small_cfg),
                        blocked=small_cfg.static_guard.blocked)
+
+
+def test_container_argv_scaled_cpu_cap_env(small_cfg, tmp_path):
+    """Streaming containers pass the scaled CPU cap for the child's self-rlimit
+    (no cascade parent inside the container to set it pre-exec)."""
+    cfg = _container_cfg(small_cfg)
+    argv = container_argv(cfg, runtime="docker", name="sbx-3", repo=tmp_path,
+                          cpu_seconds=600 + 8 * 2700,
+                          child_args=["--stream", "/sandbox/repo", "0", "{}", "8"])
+    assert f"CASCADE_SANDBOX_CPU_S={600 + 8 * 2700}" in argv
+    # batch mode passes none → the child falls back to max_generate_seconds
+    argv2 = container_argv(cfg, runtime="docker", name="sbx-4", repo=tmp_path,
+                           child_args=["/sandbox/repo", "0", "{}", "/sandbox/out"])
+    assert not any(a.startswith("CASCADE_SANDBOX_CPU_S=") for a in argv2)

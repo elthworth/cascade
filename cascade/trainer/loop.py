@@ -423,6 +423,7 @@ class TrainerRunner:
             token_budget=token_budget,
             use_sandbox=self.use_sandbox,
             blocked=self.cfg.static_guard.blocked,
+            max_wall_seconds=contract.max_train_seconds,
         ) as rs:
             result = self.base_trainer.train(
                 rs.series(),

@@ -115,6 +115,33 @@ def _apply_rlimits(
             resource.setrlimit(name, vals)
 
 
+def stream_cpu_rlimit(
+    max_generate_seconds: int, max_wall_seconds: int | None, nproc: int
+) -> int:
+    """Cumulative ``RLIMIT_CPU`` for a *streaming* generator child.
+
+    Batch mode reuses ``max_generate_seconds`` as the CPU cap and that is
+    coherent there — the whole run is also wall-clock bounded by the same knob.
+    A streaming child is different: it lives for the entire training run, so its
+    legitimate cumulative CPU scales with the training wall budget × however
+    many cores its BLAS decides to use (the child env carries no thread caps).
+    Reusing the 600s stall window as the cap silently SIGXCPUs (rc=-24) any
+    CPU-busy honest generator once finals run longer than a few minutes.
+
+    ``max_wall_seconds`` is the caller's upper bound on how long the stream will
+    be consumed (the contract's ``max_train_seconds``); the cap allows full
+    ``nproc`` utilisation for that long, plus the stall window for sandbox boot
+    and first-frame latency. Abuse is NOT this limit's job — the per-frame stall
+    timeout (``_frame_iter``) kills a generator that stops emitting, and the
+    parent terminates the child when training ends. This is only the backstop
+    for a wedged parent, so generous is correct. ``None`` keeps the legacy cap
+    (short-lived screens with no known wall bound).
+    """
+    if max_wall_seconds is None:
+        return int(max_generate_seconds)
+    return int(max_generate_seconds) + max(1, int(nproc)) * int(max_wall_seconds)
+
+
 def _child_env(*, gpu: bool = False) -> dict[str, str]:
     keys = _SAFE_ENV_KEYS + (_GPU_ENV_KEYS if gpu else ())
     env = {k: os.environ[k] for k in keys if k in os.environ}
@@ -302,8 +329,14 @@ def stream_series(
     blocked: tuple[str, ...] = (),
     allow_netns: bool = True,
     gpu: bool = False,
+    max_wall_seconds: int | None = None,
 ) -> Iterator[Iterator[np.ndarray]]:
     """Yield an iterator of fresh ``(C, L)`` series streamed from a sandboxed child.
+
+    ``max_wall_seconds`` bounds how long the caller will consume the stream
+    (pass the contract's ``max_train_seconds``); it scales the child's
+    cumulative CPU rlimit — see :func:`stream_cpu_rlimit` for why the batch-mode
+    cap must not be reused here.
 
     The child draws a prefix of ``generate`` long enough to cover ``token_budget``
     points — the generator is prefix-stable, so the consumed prefix is
@@ -329,6 +362,7 @@ def stream_series(
 
         with stream_series_container(
             repo_dir, generation_seed, cfg, token_budget, blocked=blocked, gpu=gpu,
+            max_wall_seconds=max_wall_seconds,
         ) as frames:
             yield frames
         return
@@ -343,11 +377,14 @@ def stream_series(
     if use_netns:
         argv = ["unshare", "--user", "--map-root-user", "--net", *argv]
 
+    cpu_cap = stream_cpu_rlimit(
+        cfg.max_generate_seconds, max_wall_seconds, os.cpu_count() or 1
+    )
     preexec = None
     if os.name == "posix":
         def preexec() -> None:
             _apply_rlimits(
-                cfg.max_memory_mb, cfg.max_generate_seconds, 256 * 1024 * 1024, set_as=not gpu
+                cfg.max_memory_mb, cpu_cap, 256 * 1024 * 1024, set_as=not gpu
             )
 
     proc = subprocess.Popen(
@@ -399,8 +436,11 @@ def _maybe_self_rlimit(cfg: GeneratorConfig) -> None:
     if os.environ.get("CASCADE_SANDBOX_SELF_RLIMIT") != "1":
         return
     max_fsize = int(cfg.max_total_points) * 8 * 2 + 64 * 1024 * 1024
+    # Streaming containers pass a scaled CPU cap (see stream_cpu_rlimit) since
+    # there is no cascade parent to compute it in a preexec hook.
+    cpu_cap = int(os.environ.get("CASCADE_SANDBOX_CPU_S") or cfg.max_generate_seconds)
     _apply_rlimits(
-        cfg.max_memory_mb, cfg.max_generate_seconds, max_fsize,
+        cfg.max_memory_mb, cpu_cap, max_fsize,
         set_as=os.environ.get("CASCADE_SANDBOX_GPU") != "1",
     )
 

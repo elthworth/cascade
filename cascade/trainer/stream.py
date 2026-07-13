@@ -152,6 +152,7 @@ class _FreshSeriesStream(RoundStream):
         self, repo_dir: Path | str, generation_seed: int, cfg: GeneratorConfig,
         token_budget: int, *, use_sandbox: bool, blocked: tuple[str, ...],
         allow_netns: bool = True, gpu: bool = False,
+        max_wall_seconds: int | None = None,
     ) -> None:
         self._repo = Path(repo_dir)
         self._seed = int(generation_seed)
@@ -161,6 +162,7 @@ class _FreshSeriesStream(RoundStream):
         self._allow_netns = allow_netns
         self._blocked = tuple(blocked)
         self._gpu = gpu
+        self._max_wall_seconds = max_wall_seconds
         self._dig = _StreamDigest()
         self._n = 0
         self._points = 0
@@ -171,6 +173,7 @@ class _FreshSeriesStream(RoundStream):
             self._cm = sandbox.stream_series(
                 self._repo, self._seed, self._cfg, self._budget,
                 blocked=self._blocked, allow_netns=self._allow_netns, gpu=self._gpu,
+                max_wall_seconds=self._max_wall_seconds,
             )
             return self._cm.__enter__()
         return _inprocess_stream(self._repo, self._seed, self._cfg, self._budget)
@@ -215,8 +218,15 @@ def open_round_stream(
     use_sandbox: bool = True,
     blocked: tuple[str, ...] = (),
     allow_netns: bool = True,
+    max_wall_seconds: int | None = None,
 ) -> RoundStream:
-    """Open the round's corpus stream for ``mode`` (see module docstring)."""
+    """Open the round's corpus stream for ``mode`` (see module docstring).
+
+    ``max_wall_seconds`` (streaming modes only) is the upper bound on how long
+    the stream will be consumed — pass the contract's ``max_train_seconds`` so
+    the sandbox child's cumulative CPU rlimit scales with the training budget
+    instead of the per-frame stall window (see ``sandbox.stream_cpu_rlimit``).
+    """
     if mode == "cache_reuse":
         return _CacheReuseStream(
             repo_dir, generation_seed, cfg, token_budget,
@@ -226,6 +236,6 @@ def open_round_stream(
         return _FreshSeriesStream(
             repo_dir, generation_seed, cfg, token_budget,
             use_sandbox=use_sandbox, blocked=tuple(blocked), allow_netns=allow_netns,
-            gpu=(mode == "stream_gpu"),
+            gpu=(mode == "stream_gpu"), max_wall_seconds=max_wall_seconds,
         )
     raise CorpusError(f"unknown corpus_mode={mode!r}")

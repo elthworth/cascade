@@ -43,7 +43,7 @@ they gate, score, set weights, and publish receipts.
 | 2 | Round seed | chain → everyone | epoch-start block hash → `seed_from_block_hash` | consensus | deterministic, shared |
 | 3 | Training manifest | trainer → validators | `manifests/round-<id>.json` + `manifests/latest.json` (manifest bucket) | signed by `[manifest] trainer_hotkey`; gated by `check_manifest` | read-only; single writer (the trainer) |
 | 4 | Checkpoints / generators | trainer, miners → validators | Hippius Hub OCI, `repo@sha256:…` | content-addressed digest self-verifies | read-only |
-| 5 | Eval pool | owner pool builder → validators | `pool/snapshots/block-<N>.tar` + `pool/index.json` (pool bucket) | sha256 in index; `effective_block` selection is deterministic | read-only; all validators resolve the same snapshot for a round |
+| 5 | Eval pool | owner pool builder → validators | `pool/snapshots/block-<N>.tar` + `pool/index.json` (pool bucket) | sha256 pinned in the **signed manifest** (`eval_pool_key`/`eval_pool_sha256`, gated by `check_pool_pin`); index sha256 as legacy fallback for unpinned manifests | read-only; all validators resolve the same snapshot for a round and verify it against the pin |
 | 6 | Weights | each validator → chain | `set_weights` | on-chain, per-hotkey | independent by construction — no shared state |
 | 7 | Round receipts | each validator → auditors, dashboard | `receipts/<hotkey>/round-<id>.json` + `receipts/<hotkey>/latest.json`, shared `receipts/latest.json` pointer | signed per validator hotkey; public-read | **single-writer prefixes** — validators cannot clobber each other; only the convenience pointer is last-writer-wins |
 | 8 | Receipts index | each validator → dashboard | `receipts/index.json`, entries keyed `(round_id, validator_hotkey)` | unsigned, presentational only | merge-keyed read-modify-write; a simultaneous write can drop one entry until that validator's next round — never audit- or weight-bearing |
@@ -56,13 +56,23 @@ content-addressed *and* deterministic per round — N validators reach the same
 verdict independently, which is why weights need no coordination. Channels
 7–9 are evidence and observability, never inputs to consensus.
 
+Because storage keys aren't prefix-scoped, anyone holding a bucket's write
+credentials can overwrite *any* object in it. The design assumes that and
+anchors integrity above the storage layer: manifests fail the trainer-hotkey
+signature gate if touched, checkpoints are digest-pinned, and the eval pool is
+pinned inside the signed manifest. What write access *does* buy an attacker is
+vandalism — deleted receipts, a defaced dashboard, stalled rounds — which is
+detectable (signatures, the R2 mirror) but not preventable; the mitigation is
+key hygiene: one pair per bucket, pool keys separate from manifest keys, forge
+keys never shared beyond the owner.
+
 ## What a validator needs access to — and only this
 
 | Resource | Access | Credential |
 |----------|--------|------------|
 | Bittensor chain | read + `set_weights` | hotkey wallet |
 | Manifest bucket | read `manifests/…`, write `receipts/<own hotkey>/…` + index | `HIPPIUS_S3_*` |
-| Pool bucket (if split from manifest bucket) | read-only snapshots | `POOL_S3_*` (or same) |
+| Pool bucket | read-only snapshots | `POOL_S3_*` — issue a pair separate from the manifest-bucket keys (S3 keys aren't prefix-scoped; a shared pair could write the pool) |
 | Hippius Hub | read (pull checkpoints/generators) | `HIPPIUS_HUB_TOKEN` |
 | HF benchmark datasets + bench sidecar (opt-in only, see below) | public read | `HF_TOKEN` if gated |
 

@@ -69,6 +69,23 @@ different times around the daily rollover still score the *identical* pool for a
 given round (no latest-wins divergence). Integrity is the tar's sha256, verified
 on fetch.
 
+The sha256 lives in `pool/index.json`, which is unsigned — so on its own it
+protects against corruption, not against a hostile holder of the bucket's
+write credentials. The trainer therefore **pins** the round's snapshot into
+the signed manifest (`eval_pool_key` + `eval_pool_sha256`, resolved from the
+same pool source its heat screen used): each validator's own snapshot
+selection must match the pinned pair or the round is rejected
+(`pool_pin_mismatch`), so pool integrity descends from the trainer signature
+validators already trust, not from storage ACLs. Unpinned manifests (a
+trainer predating the field, or one running without a pool source) keep the
+legacy index-trust behaviour. Rollout order matters once: deploy this
+validator code everywhere **before** starting a pinning trainer — the pin is
+inside the signed body, so older validators would fail signature verification
+on pinned manifests. Operationally, never publish a snapshot whose
+`effective_block` is at or before an in-flight round's epoch boundary
+(`--effective-block auto` already guarantees this): it would flip validators'
+selection away from the pinned snapshot mid-round.
+
 > **Why the block, not the round id.** A round id is the epoch-boundary block
 > *hash* folded to a 64-bit seed (`ChainClient.block_seed`) — deliberately
 > unpredictable, hence non-monotonic. Ordering snapshots by "greatest

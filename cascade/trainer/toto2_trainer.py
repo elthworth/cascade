@@ -304,6 +304,18 @@ class Toto2Trainer:
                 break
 
         train_seconds = time.time() - t0
+        # First-reached-stops: the loop ends on the token budget OR the wall-clock
+        # deadline. A deadline stop leaves the model UNDER the contract's compute
+        # — self-penalizing in a heat, but in a final it silently breaks the
+        # equal-compute pairing, so it must be loud in the record, never implicit.
+        deadline_hit = tokens < token_budget and time.time() > deadline
+        if deadline_hit:
+            log.warning(
+                "wall-clock deadline (%ds) hit at %d/%d tokens (%.0f%%): checkpoint is "
+                "under the contract budget — slow corpus or under-provisioned device",
+                contract.max_train_seconds, tokens, token_budget,
+                100.0 * tokens / max(1, token_budget),
+            )
         param_count = sum(p.numel() for p in model.parameters())
         gpu_name = (
             torch.cuda.get_device_name(0)
@@ -315,6 +327,7 @@ class Toto2Trainer:
             "param_count": param_count,
             "throughput_tokens_per_s": tokens / max(1e-6, train_seconds),
             "gpu_name": gpu_name, "deterministic": self.deterministic,
+            "deadline_hit": deadline_hit,
         }
         if logger is not None:
             logger({"event": "done", **metrics})

@@ -94,11 +94,14 @@ def container_argv(
     child_args: list[str],
     out_dir: Path | None = None,
     gpu: bool = False,
+    cpu_seconds: int | None = None,
 ) -> list[str]:
     """The full ``docker run`` argv for one sandboxed generator run.
 
     Pure (no I/O), so the hardening flags are unit-testable. ``child_args`` is
-    everything after ``-m cascade.trainer.sandbox``.
+    everything after ``-m cascade.trainer.sandbox``. ``cpu_seconds`` overrides
+    the child's self-applied CPU rlimit (streaming runs scale it with the
+    training wall budget — see ``sandbox.stream_cpu_rlimit``).
     """
     src_root = Path(__file__).resolve().parents[2]
     argv = [
@@ -124,6 +127,8 @@ def container_argv(
         # block inside the container (see sandbox._maybe_self_rlimit).
         "-e", "CASCADE_SANDBOX_SELF_RLIMIT=1",
     ]
+    if cpu_seconds is not None:
+        argv += ["-e", f"CASCADE_SANDBOX_CPU_S={int(cpu_seconds)}"]
     if out_dir is not None:
         argv += ["-v", f"{out_dir}:{_OUT_MNT}:rw"]
     if gpu:
@@ -201,6 +206,7 @@ def stream_series_container(
     *,
     blocked: tuple[str, ...] = (),
     gpu: bool = False,
+    max_wall_seconds: int | None = None,
 ) -> Iterator[Iterator[np.ndarray]]:
     """Container-mode :func:`cascade.trainer.sandbox.stream_series`.
 
@@ -208,7 +214,7 @@ def stream_series_container(
     stdout; the caller stops at its budget and the container is always killed
     on exit.
     """
-    from .sandbox import _frame_iter, _preflight, _terminate
+    from .sandbox import _frame_iter, _preflight, _terminate, stream_cpu_rlimit
 
     repo = Path(repo_dir).resolve()
     _preflight(repo, cfg, tuple(blocked))
@@ -216,8 +222,11 @@ def stream_series_container(
 
     n_upper = int(token_budget) // max(int(cfg.min_length), 1) + 2
     name = f"cascade-sbx-{os.urandom(6).hex()}"
+    cpu_cap = stream_cpu_rlimit(
+        cfg.max_generate_seconds, max_wall_seconds, os.cpu_count() or 1
+    )
     argv = container_argv(
-        cfg, runtime=runtime, name=name, repo=repo, gpu=gpu,
+        cfg, runtime=runtime, name=name, repo=repo, gpu=gpu, cpu_seconds=cpu_cap,
         child_args=["--stream", _REPO_MNT, str(int(generation_seed)),
                     json.dumps(asdict(cfg)), str(n_upper)],
     )

@@ -369,15 +369,30 @@ class ValidatorRunner:
 
         ec = self.cfg.eval
         ckpt = self._fetch_checkpoint_dir(entry)
-        report = run_benchmarks(
-            ckpt,
-            project_dir=ec.benchmark_project_dir,
-            suites=("gift-eval", "boom", "time"),
-            num_samples=ec.benchmark_num_samples or ec.num_samples,
-            max_series=ec.cascade_bench_max_series,  # 0 = full battery
-            device=self.device,
-        )
-        metrics = extract_bench_scores(report)
+        num_samples = ec.benchmark_num_samples or ec.num_samples
+        if self.eval_host is not None:
+            # Offload the cascade bench (GIFT-Eval+BOOM+TIME) to the GPU pod,
+            # same seam as the gift-eval gate; the wallet stays on this box.
+            from .eval_offload import bench_scores_via_host
+
+            metrics = bench_scores_via_host(
+                self.eval_host, ckpt,
+                num_samples=num_samples,
+                max_series=ec.cascade_bench_max_series,  # 0 = full battery
+                data_dir=(ec.gift_gate_data_dir or None),
+                device="cuda",
+                timeout_s=ec.gift_gate_timeout_s,
+            )
+        else:
+            report = run_benchmarks(
+                ckpt,
+                project_dir=ec.benchmark_project_dir,
+                suites=("gift-eval", "boom", "time"),
+                num_samples=num_samples,
+                max_series=ec.cascade_bench_max_series,  # 0 = full battery
+                device=self.device,
+            )
+            metrics = extract_bench_scores(report)
         if metrics is None:
             log.warning("cascade: incomplete GIFT-Eval/BOOM/TIME metrics for king checkpoint %s; "
                         "not recording this round", entry.trained_pointer)

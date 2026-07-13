@@ -54,8 +54,9 @@ def build_stage_policy(raw: dict, stage: str) -> StagePolicy:
     if gpus < 1:
         raise ProvisionError(f"[provisioner.{stage}] gpus_per_pod must be >= 1; got {gpus}")
     max_pods = int(raw.get("max_pods", 1))
-    if max_pods < 1:
-        raise ProvisionError(f"[provisioner.{stage}] max_pods must be >= 1; got {max_pods}")
+    if max_pods < 0:
+        raise ProvisionError(f"[provisioner.{stage}] max_pods must be >= 0 "
+                             f"(0 = stage unmanaged, served by static hosts); got {max_pods}")
     price = float(raw.get("max_price_hr", 0))
     if price <= 0:
         raise ProvisionError(f"[provisioner.{stage}] max_price_hr must be > 0; got {price}")
@@ -150,6 +151,41 @@ def make_health_check(policy: ProvisionPolicy, render: RenderSettings, *,
     return check
 
 
+def make_bootstrap(script: Path, render: RenderSettings, *,
+                   timeout_s: float, pod_user: str) -> callable:
+    """The BOOTSTRAP boundary: run an operator-supplied script against a fresh pod.
+
+    No digest-pinned worker image is published yet, so pods rent bare and get
+    provisioned over SSH — the script (run ON the orchestrator) receives the
+    pod's coordinates via env (``POD_IP``/``POD_PORT``/``POD_USER``/``POD_KEY``/
+    ``POD_STAGE``/``POD_WORKDIR``) and typically rsyncs the source tree and
+    ``uv sync``s the pinned lock. Exit 0 = ready for the health gate — which
+    then independently verifies whatever the script claims to have built.
+    """
+    import os
+
+    def bootstrap(addr, stage: str) -> bool:
+        env = dict(os.environ)
+        env.update({
+            "POD_IP": addr.ip, "POD_PORT": str(addr.ssh_port), "POD_USER": pod_user,
+            "POD_KEY": render.key_path, "POD_STAGE": stage, "POD_WORKDIR": render.workdir,
+        })
+        try:
+            proc = subprocess.run(["bash", str(script)], env=env, timeout=timeout_s,
+                                  capture_output=True, text=True)
+        except subprocess.TimeoutExpired:
+            log.error("bootstrap %s:%s timed out after %.0fs", addr.ip, addr.ssh_port, timeout_s)
+            return False
+        if proc.returncode != 0:
+            log.error("bootstrap %s:%s failed (rc=%d): %s", addr.ip, addr.ssh_port,
+                      proc.returncode, (proc.stderr or proc.stdout or "")[-800:])
+            return False
+        log.info("bootstrap %s:%s done", addr.ip, addr.ssh_port)
+        return True
+
+    return bootstrap
+
+
 def make_hippius_probe(storage) -> callable:
     """A reachability probe for the manifest store (health check #6).
 
@@ -220,7 +256,13 @@ def _run(args) -> int:
     policy = build_policy(raw, epoch_blocks=cfg.round.epoch_blocks)
 
     image = str(top.get("image", ""))
-    validate_digest_pinned(image)
+    if not top.get("bootstrap_script"):
+        # Image-boot mode: the pod IS the image, so a moving tag breaks the
+        # expected_gpu re-derivation contract — digest pin required.
+        validate_digest_pinned(image)
+    elif not image:
+        raise ProvisionError("[provisioner] image is required (bootstrap mode: the "
+                             "provider template to boot, e.g. a stock pytorch image)")
     pubkey_arg = str(top.get("ssh_pubkey", ""))
     if not pubkey_arg:
         raise ProvisionError("[provisioner] ssh_pubkey is required (inline key or .pub path)")
@@ -241,6 +283,30 @@ def _run(args) -> int:
     hosts_path = Path(top.get("hosts_path", "hosts.toml"))
     work_root = Path(args.work_root)
     state_path = Path(top.get("state_path", work_root / "provisioner_state.json"))
+
+    # Operator's static [[host]] entries (e.g. a long-lived final pod) — appended
+    # verbatim to every hosts.toml publish so provisioner activity never drops them.
+    static_hosts_text = ""
+    if top.get("static_hosts"):
+        static_path = Path(top["static_hosts"])
+        static_hosts_text = static_path.read_text(encoding="utf-8")
+        from ..trainer.remote import load_hosts  # validate NOW, not mid-round
+        try:
+            load_hosts(static_path)
+        except Exception as e:
+            raise ProvisionError(f"static_hosts {static_path} does not parse as a "
+                                 f"hosts.toml fragment: {e}") from e
+
+    bootstrap = None
+    if top.get("bootstrap_script"):
+        script = Path(top["bootstrap_script"])
+        if not script.is_file():
+            raise ProvisionError(f"bootstrap_script not found: {script}")
+        bootstrap = make_bootstrap(
+            script, render,
+            timeout_s=float(top.get("bootstrap_timeout_s", 1800.0)),
+            pod_user=str(top.get("pod_user", "root")),
+        )
 
     provider_names = list(dict.fromkeys([*policy.heat.providers, *policy.final.providers]))
     providers = {p.name: p for p in build_providers(provider_names)}
@@ -273,6 +339,8 @@ def _run(args) -> int:
             min_disk_gb=float(top.get("min_disk_gb", 20.0)),
             hippius_probe=hippius_probe,
         ),
+        bootstrap=bootstrap,
+        static_hosts_text=static_hosts_text,
         ssh_probe=lambda ip, port: wait_ssh_reachable(ip, port, timeout=300.0),
         poll_seconds=float(top.get("poll_seconds", 30.0)),
         dry_run=bool(args.dry_run),

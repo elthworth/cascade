@@ -142,6 +142,16 @@ class ProvisionerLoop:
     final_hours: float                                      # [training] target_train_hours
     manifest_store: object | None = None
     health_check: Callable[[PodAddress, str], HealthReport] | None = None
+    # Provisions a bare pod over SSH (rsync source + uv sync) before the health
+    # gate — the testnet path while no digest-pinned worker image is published.
+    # Returns False on failure (the pod is treated like a health-gate dud).
+    bootstrap: Callable[[PodAddress, str], bool] | None = None
+    # Raw [[host]] TOML appended verbatim to EVERY hosts.toml publish — the
+    # operator's static pods (e.g. a long-lived final pod) that the provisioner
+    # must never drop. clear/teardown re-renders keep it too: "no dynamic pods"
+    # must degrade to "static fleet", never to an empty file while a static
+    # final exists.
+    static_hosts_text: str = ""
     ssh_probe: Callable[[str, int], bool] = field(default=lambda ip, port: True)
     ready_timeout: float = DEFAULT_READY_TIMEOUT
     poll_seconds: float = 30.0
@@ -233,8 +243,8 @@ class ProvisionerLoop:
             # No provider anywhere: publish an EMPTY hosts file so the trainer
             # trains this round locally — the round is degraded, never lost.
             log.error("round %d: no provider has capacity for any stage; "
-                      "clearing hosts (trainer falls back local)", round_id)
-            clear_hosts(self.hosts_path)
+                      "publishing static fleet only (trainer degrades, never lost)", round_id)
+            self._write_hosts([])
             return
 
         offers = {stage: price for stage, (_prov, price) in chosen.items()}
@@ -244,7 +254,7 @@ class ProvisionerLoop:
             log.error("round %d REFUSED by budget breaker: worst-case $%.2f > cap $%.2f "
                       "(offers %s); clearing hosts", round_id, projected,
                       self.policy.max_spend_per_round, offers)
-            clear_hosts(self.hosts_path)
+            self._write_hosts([])
             return
         log.info("round %d budget ok: worst-case $%.2f <= cap $%.2f",
                  round_id, projected, self.policy.max_spend_per_round)
@@ -275,8 +285,8 @@ class ProvisionerLoop:
                 rented[stage] = healthy
         if not rented:
             log.error("round %d: every rented pod failed its health gate; "
-                      "clearing hosts (trainer falls back local)", round_id)
-            clear_hosts(self.hosts_path)
+                      "publishing static fleet only (trainer degrades, never lost)", round_id)
+            self._write_hosts([])
             return
         self._publish_hosts(rented)
         self._state = replace(self._state, published=True)
@@ -383,6 +393,14 @@ class ProvisionerLoop:
             if not self.ssh_probe(addr.ip, addr.ssh_port):
                 log.warning("pod %s SSH %s:%d unreachable", pid, addr.ip, addr.ssh_port)
                 return None
+            if self.bootstrap is not None:
+                # No digest-pinned worker image exists yet (testnet): pods are
+                # rented bare and provisioned over SSH (rsync source + uv sync
+                # against the pinned lock). The hook runs BEFORE the health
+                # gate, so the gate verifies what bootstrap actually produced.
+                if not self.bootstrap(addr, stage):
+                    log.warning("pod %s bootstrap failed", pid)
+                    return None
             if self.health_check is not None:
                 report = self.health_check(addr, stage)
                 if not report.ok:
@@ -395,6 +413,21 @@ class ProvisionerLoop:
         return addr
 
     # ── PUBLISH ──────────────────────────────────────────────────────────────
+
+    def _write_hosts(self, sections: list[str]) -> None:
+        """Publish dynamic sections + the operator's static entries.
+
+        The static text rides along on EVERY publish — including the
+        heat-teardown re-render and the nothing-rented paths — so a long-lived
+        hand-rented pod (e.g. the static final) is never dropped by provisioner
+        activity. Only with no static text AND no dynamic pods does the file
+        clear (the trainer's local-fallback signal).
+        """
+        content = "".join([self.static_hosts_text, *sections])
+        if content.strip():
+            write_hosts(self.hosts_path, content)
+        else:
+            clear_hosts(self.hosts_path)
 
     def _publish_hosts(self, by_stage: dict[str, list[tuple[PodInstance, PodAddress]]]) -> None:
         sections = []
@@ -415,12 +448,10 @@ class ProvisionerLoop:
                 stage=stage,
                 gpus_per_pod=fleet_gpus,
             ))
-        if not sections:
-            clear_hosts(self.hosts_path)
-            return
-        write_hosts(self.hosts_path, "".join(sections))
+        self._write_hosts(sections)
         n = sum(len(v) for v in by_stage.values())
-        log.info("published %s: %d pod(s) across %s", self.hosts_path, n, sorted(by_stage))
+        log.info("published %s: %d dynamic pod(s) across %s%s", self.hosts_path, n,
+                 sorted(by_stage), " + static entries" if self.static_hosts_text else "")
 
     def _republish_from_ledger(self) -> None:
         """Re-render hosts.toml from the surviving instances (post-teardown).
@@ -436,10 +467,7 @@ class ProvisionerLoop:
                 addr = self._addr_for(inst)
                 if addr is not None:
                     by_stage.setdefault(stage, []).append((inst, addr))
-        if by_stage:
-            self._publish_hosts(by_stage)
-        else:
-            clear_hosts(self.hosts_path)
+        self._publish_hosts(by_stage)
 
     def _addr_for(self, inst: PodInstance) -> PodAddress | None:
         addr = self._addrs.get(inst.instance_id)

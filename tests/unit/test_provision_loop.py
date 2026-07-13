@@ -515,3 +515,52 @@ def test_hosts_file_round_trips_via_tomllib_too(tmp_path):
     loop.run_once()
     data = tomllib.loads((tmp_path / "hosts.toml").read_text(encoding="utf-8"))
     assert len(data["host"]) == 10                            # 8 heat GPUs + 2 final GPUs
+
+
+# ── static hosts + bootstrap + unmanaged final ───────────────────────────────
+
+
+def test_static_hosts_survive_every_publish_and_clear(tmp_path):
+    """The operator's long-lived final pod must ride along on every render —
+    including failure paths that previously cleared the file outright."""
+    static = '[[host]]\nname = "cascade-final-b"\nhost = "216.81.245.151"\nstage = "final"\n'
+    prov = FakeProvider("lium")
+    loop, _ = make_loop(tmp_path, providers={"lium": prov}, block=880)
+    loop.static_hosts_text = static
+    loop.run_once()                               # provisions + publishes
+    text = (tmp_path / "hosts.toml").read_text()
+    assert "cascade-final-b" in text              # static entry present
+    assert "cascade-900-heat" in text             # dynamic heat pods present
+    # all-providers-down path: static fleet remains, never an empty file
+    prov2 = FakeProvider("lium", available=False)
+    loop2, _ = make_loop(tmp_path, providers={"lium": prov2}, block=1780)
+    loop2.static_hosts_text = static
+    loop2.run_once()
+    text2 = (tmp_path / "hosts.toml").read_text()
+    assert "cascade-final-b" in text2
+    assert "heat" not in text2.replace('stage = "final"', "")
+
+
+def test_bootstrap_failure_replaces_pod_once(tmp_path):
+    calls = []
+
+    def flaky_bootstrap(addr, stage):
+        calls.append(addr.ip)
+        return len(calls) > 1                     # first pod fails, replacement passes
+
+    prov = FakeProvider("lium")
+    loop, _ = make_loop(tmp_path, providers={"lium": prov}, block=880)
+    loop.bootstrap = flaky_bootstrap
+    loop.run_once()
+    assert len(calls) >= 2                        # failed pod → one replacement attempt
+    assert prov.terminated                        # the dud was terminated
+
+
+def test_unmanaged_final_rents_no_final_pods(tmp_path):
+    from cascade.provision.policy import size_fleet
+
+    pol = _policy(final=StagePolicy(sku="NVIDIA L40S", gpus_per_pod=1, max_pods=0,
+                                    providers=("lium",), max_price_hr=3.0))
+    plan = size_fleet(12, 1, 0.5, 3.0, 0.75, pol)
+    assert plan.final.pods == 0                   # stage unmanaged: static pods serve it
+    assert plan.heat.pods > 0

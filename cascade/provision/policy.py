@@ -188,8 +188,13 @@ def size_fleet(
         heat_slots, heat_pods = 0, 0
 
     final_slots = 1 + finalists
-    final_pods = _clamp(math.ceil(final_slots / policy.final.gpus_per_pod),
-                        1, policy.final.max_pods)
+    # max_pods = 0 means "stage unmanaged": the operator serves it with static
+    # hand-rented pods (hosts.toml static entries), so the provisioner rents none.
+    if policy.final.max_pods == 0:
+        final_pods = 0
+    else:
+        final_pods = _clamp(math.ceil(final_slots / policy.final.gpus_per_pod),
+                            1, policy.final.max_pods)
 
     return FleetPlan(
         heat=StageFleet(pods=heat_pods, gpus_per_pod=policy.heat.gpus_per_pod,

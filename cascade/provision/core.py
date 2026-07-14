@@ -71,6 +71,10 @@ DEFAULT_SSH_OPTIONS = (
 DEFAULT_SSH_PORT = 22
 DEFAULT_READY_TIMEOUT = 900.0               # provider "active" + sshd reachable
 POD_POLL_INTERVAL = 10.0
+# A pod that hasn't APPEARED in `lium ps` by now never will — the `lium up`
+# failed (deploys are client-driven and show RUNNING within ~1 min live).
+# Distinct from the ready timeout: appeared-but-booting keeps polling.
+LIUM_APPEAR_TIMEOUT = 180.0
 
 
 class ProvisionError(RuntimeError):
@@ -459,13 +463,20 @@ def _default_lium_bin() -> str:
     return shutil.which("lium") or "lium"
 
 
-def _spawn_cli(argv: list[str]) -> subprocess.Popen:
+def _spawn_cli(argv: list[str], log_path: Path | None = None) -> subprocess.Popen:
     """Fire-and-forget a CLI command (e.g. ``lium up``, which attaches/streams).
 
     We don't wait on it — pod readiness is observed via ``lium ps`` polling, and
-    killing the local client does not stop the remote pod.
+    killing the local client does not stop the remote pod. ``log_path`` captures
+    the child's output: ``lium up`` DRIVES the deploy client-side, so its output
+    is the only evidence when a pod silently never materializes (observed live:
+    an executor in post-teardown cooldown accepts the up, deploys nothing, and
+    a DEVNULL'd spawn leaves a 900s ghost hunt with zero diagnostics).
     """
-    return subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if log_path is None:
+        return subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with open(log_path, "ab") as f:
+        return subprocess.Popen(argv, stdout=f, stderr=f)
 
 
 def wait_ssh_reachable(ip: str, port: int, *, timeout: float, interval: float = 5.0,
@@ -550,7 +561,6 @@ class LiumProvider:
                 f"lium: only {len(execs)} × {spec.gpus_per_pod}x{spec.sku} available"
                 f"{' after exclusions' if spec.exclude_ids else ''}, need {spec.count}"
             )
-        spawn = self._spawn or _spawn_cli
         names: list[str] = []
         for i, ex in enumerate(execs[: spec.count]):
             name = f"{spec.name_prefix}-{i}"
@@ -564,7 +574,10 @@ class LiumProvider:
             # injects the ACCOUNT's registered keys; a template NAME passed as
             # --image 400s ("image reference is not valid") — never do that.
             argv += ["--name", name, "--yes"]
-            spawn(argv)
+            if self._spawn is not None:
+                self._spawn(argv)
+            else:
+                _spawn_cli(argv, log_path=self._up_log_path(name))
             log.info("lium up → executor %s as %s", ex.get("id"), name)
             self._executor_by_name[name] = str(ex.get("id"))
             names.append(name)
@@ -574,12 +587,35 @@ class LiumProvider:
         """Executor id a pod was launched on (this process's launches only)."""
         return self._executor_by_name.get(pod_id)
 
+    @staticmethod
+    def _up_log_path(name: str) -> Path:
+        import tempfile
+        return Path(tempfile.gettempdir()) / f"lium-up-{name}.log"
+
+    def _up_log_tail(self, name: str, n: int = 400) -> str:
+        try:
+            return self._up_log_path(name).read_text(errors="ignore")[-n:].strip()
+        except OSError:
+            return ""
+
     def wait_ready(self, pod_id: str, *, timeout: float) -> bool:
         deadline = self._now() + timeout
+        appear_by = self._now() + min(LIUM_APPEAR_TIMEOUT, timeout)
+        seen = False
         while self._now() < deadline:
             pod = self._pod(pod_id)
-            if pod and lium_pod_ready(pod):
-                return True
+            if pod:
+                seen = True
+                if lium_pod_ready(pod):
+                    return True
+            elif not seen and self._now() >= appear_by:
+                # Never listed ⇒ the `lium up` failed; don't burn the full
+                # ready timeout on a ghost. Surface the captured up output.
+                tail = self._up_log_tail(pod_id)
+                log.warning("lium pod %s never appeared in `lium ps` within %.0fs — "
+                            "`lium up` likely failed; its output: %s",
+                            pod_id, LIUM_APPEAR_TIMEOUT, tail or "(no up log captured)")
+                return False
             self._sleep(self.poll_interval)
         return False
 

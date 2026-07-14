@@ -181,6 +181,22 @@ def test_lium_launch_injects_ssh_pubkey_env_and_port():
     assert up[up.index("--internal-ports") + 1] == "22"
 
 
+def test_plan_argv_forwards_the_network():
+    """Incident 2026-07-14: the COUNT subprocess defaulted to finney, so a
+    testnet provisioner counted MAINNET's netuid and planned eligible=0 for
+    three consecutive rental windows. The network must ride along."""
+    from pathlib import Path
+
+    from cascade.provision.main import plan_argv
+
+    argv = plan_argv(Path("chain.testnet.toml"), Path("_train_work"), "test")
+    assert argv[argv.index("--network") + 1] == "test"
+    assert argv[argv.index("--chain-toml") + 1] == "chain.testnet.toml"
+    assert "--plan-only" in argv
+    # No network given (defaults intended) → flag genuinely absent.
+    assert "--network" not in plan_argv(None, Path("w"), None)
+
+
 def test_lium_launch_excludes_lemons_and_remembers_machines():
     """Replacement rents must skip the failed pod's executor (the offer list is
     deterministic, so an unexcluded replacement re-rents the exact lemon —

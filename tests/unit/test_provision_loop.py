@@ -921,3 +921,23 @@ def test_hung_chain_client_hits_deadline_and_rebuilds(tmp_path):
     finally:
         loop_cls._with_deadline = staticmethod(orig)
     assert plan_calls == [1]                    # rebuilt within the same cycle and triggered
+
+
+def test_on_cycle_hook_heals_stripped_logging(tmp_path):
+    """bittensor strips handlers + raises level on named loggers at chain
+    connect (verified live). The loop must invoke the self-heal hook every
+    cycle so logging survives arbitrary re-nuking."""
+    import logging
+
+    lg = logging.getLogger("cascade")
+    calls = []
+
+    def heal():
+        calls.append(1)
+        lg.setLevel(logging.INFO)
+
+    loop, _ = make_loop(tmp_path, block=100)
+    loop.on_cycle = heal
+    lg.setLevel(logging.CRITICAL)          # simulate the nuke
+    loop.run_once()
+    assert calls and lg.getEffectiveLevel() == logging.INFO

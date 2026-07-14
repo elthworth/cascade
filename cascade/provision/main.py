@@ -278,21 +278,29 @@ def main(argv: list[str] | None = None) -> int:
     # 2026-07-14: 3h of invisible-but-working loop, then an invisible trigger
     # failure). Give the cascade tree its OWN handler and stop propagating —
     # nothing bittensor does to root can mute us again.
-    cascade_logger = logging.getLogger("cascade")
+    # bittensor's logging init STRIPS handlers and raises the level to
+    # CRITICAL on named loggers whenever a chain client connects (verified
+    # live 2026-07-14: same logger object, handlers=[] and level=50 after
+    # ChainClient.from_config). A one-time setup therefore cannot survive —
+    # ensure_service_logging() re-asserts idempotently and the loop calls it
+    # at EVERY cycle start (ProvisionerLoop.on_cycle).
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    handler = logging.StreamHandler()
-    handler.setFormatter(fmt)
-    cascade_logger.addHandler(handler)
-    # A StreamHandler was NOT enough: bittensor's logging machinery replaces
-    # sys.stderr itself at chain connect, so the handler's stream reference
-    # goes dark (observed live TWICE, 2026-07-14). A FileHandler owns its own
-    # fd — nothing that swaps process stdio can mute it. This file is the
-    # service's source of truth; the console stream is best-effort garnish.
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(fmt)
     file_handler = logging.FileHandler("provisioner-service.log")
     file_handler.setFormatter(fmt)
-    cascade_logger.addHandler(file_handler)
-    cascade_logger.setLevel(args.log_level)
-    cascade_logger.propagate = False
+    level = args.log_level
+
+    def ensure_service_logging() -> None:
+        lg = logging.getLogger("cascade")
+        for h in (stream_handler, file_handler):
+            if h not in lg.handlers:
+                lg.addHandler(h)
+        lg.setLevel(level)
+        lg.propagate = False
+
+    ensure_service_logging()
+    globals()["_ensure_service_logging"] = ensure_service_logging
     try:
         return _run(args)
     except ProvisionError as e:
@@ -432,6 +440,7 @@ def _run(args) -> int:
         ssh_probe=lambda ip, port: wait_ssh_reachable(ip, port, timeout=300.0),
         poll_seconds=float(top.get("poll_seconds", 30.0)),
         dry_run=bool(args.dry_run),
+        on_cycle=globals().get("_ensure_service_logging"),
     )
     eval_desc = ("off" if policy.eval is None or policy.eval.max_pods == 0
                  or eval_hosts_path is None

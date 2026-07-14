@@ -264,7 +264,7 @@ def test_unhealthy_pod_replaced_once(tmp_path):
     prov = FakeProvider("lium")
     bad_ips = {"10.0.0.1"}                                   # the first heat pod's IP
 
-    def health(addr, stage, provider=""):
+    def health(addr, stage, provider="", **shape):
         return _report(ok=addr.ip not in bad_ips)
 
     loop, _ = make_loop(tmp_path, providers={"lium": prov}, health=health)
@@ -281,7 +281,7 @@ def test_unhealthy_pod_replaced_once(tmp_path):
 def test_replacement_also_unhealthy_drops_the_slot(tmp_path):
     prov = FakeProvider("lium")
 
-    def health(addr, stage, provider=""):
+    def health(addr, stage, provider="", **shape):
         return _report(ok=(stage != "heat"))                 # every heat pod is a lemon
 
     loop, _ = make_loop(tmp_path, providers={"lium": prov}, health=health)
@@ -297,7 +297,7 @@ def test_replacement_also_unhealthy_drops_the_slot(tmp_path):
 def test_every_pod_unhealthy_clears_hosts(tmp_path):
     prov = FakeProvider("lium")
     loop, _ = make_loop(tmp_path, providers={"lium": prov},
-                        health=lambda addr, stage, provider="": _report(ok=False))
+                        health=lambda addr, stage, provider="", **shape: _report(ok=False))
     loop.run_once()
     assert prov.live == {}                                    # nothing left billing
     with pytest.raises(RemoteDispatchError):
@@ -582,3 +582,67 @@ def test_publish_uses_per_provider_profile(tmp_path):
     hosts = load_hosts(tmp_path / "hosts.toml")
     assert hosts and all(h.user == "shadeform" for h in hosts)
     assert all(h.workdir == "/home/shadeform/cascade" for h in hosts)
+
+
+# ── SKU fallback (homogeneous per round) ─────────────────────────────────────
+
+
+class ShapedProvider(FakeProvider):
+    """A marketplace that only stocks specific (sku, gpus) shapes."""
+
+    def __init__(self, name, shapes, price=None):
+        super().__init__(name, price=price)
+        self.shapes = set(shapes)                       # {(market_sku, gpus)}
+
+    def available(self, sku, count, *, gpus=1):
+        return (sku, gpus) in self.shapes
+
+
+def _fallback_policy():
+    from cascade.provision.policy import SkuCandidate
+    return _policy(heat=StagePolicy(
+        sku="NVIDIA GeForce RTX 4090", market_sku="RTX4090", gpus_per_pod=4,
+        max_pods=2, providers=("lium", "shadeform"), max_price_hr=2.60,
+        candidates=(SkuCandidate(sku="NVIDIA RTX A6000", market_sku="A6000",
+                                 gpus_per_pod=8, max_price_hr=4.50),)))
+
+
+def test_sku_fallback_takes_first_candidate_with_capacity(tmp_path):
+    """Primary 4x4090 out of stock everywhere; the 8xA6000 fallback (on the
+    second provider, at ITS shape: 1 pod for 7 slots) serves the whole heat."""
+    lium = ShapedProvider("lium", shapes=set())                      # nothing
+    shade = ShapedProvider("shadeform", shapes={("A6000", 8)})
+    loop, _ = make_loop(tmp_path, providers={"lium": lium, "shadeform": shade},
+                        policy=_fallback_policy())
+    loop.run_once()
+    assert shade.launched == ["cascade-900-heat-0"]                  # 1 × 8x pod
+    hosts = [h for h in load_hosts(tmp_path / "hosts.toml") if h.stage == "heat"]
+    assert len(hosts) == 8                                           # fallback fan-out
+    st = load_state(tmp_path / "state.json")
+    heat = [i for i in st.instances if i.stage == "heat"]
+    assert heat[0].sku == "NVIDIA RTX A6000" and heat[0].gpus == 8   # rented shape recorded
+
+
+def test_sku_fallback_health_gate_gets_rented_sku(tmp_path):
+    """The gate must assert the device that was ACTUALLY rented, not the primary."""
+    seen = []
+
+    def health(addr, stage, provider="", *, sku="", gpus=0):
+        seen.append((stage, sku, gpus))
+        return _report(ok=True)
+
+    shade = ShapedProvider("shadeform", shapes={("A6000", 8)})
+    loop, _ = make_loop(tmp_path, providers={"shadeform": shade},
+                        policy=_fallback_policy(), health=health)
+    loop.run_once()
+    assert ("heat", "NVIDIA RTX A6000", 8) in seen
+
+
+def test_sku_primary_wins_when_stocked(tmp_path):
+    lium = ShapedProvider("lium", shapes={("RTX4090", 4)})
+    shade = ShapedProvider("shadeform", shapes={("A6000", 8)})
+    loop, _ = make_loop(tmp_path, providers={"lium": lium, "shadeform": shade},
+                        policy=_fallback_policy())
+    loop.run_once()
+    assert lium.launched == ["cascade-900-heat-0"]   # 3 slots (12-field) @ 4x → 1 pod
+    assert shade.launched == []

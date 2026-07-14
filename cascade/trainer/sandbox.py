@@ -67,10 +67,68 @@ _GPU_ENV_KEYS = (
     "CUDA_HOME", "CUDA_DEVICE_ORDER", "LD_LIBRARY_PATH", "PYTORCH_CUDA_ALLOC_CONF",
 )
 
+# The env vars every mainstream BLAS/threadpool implementation honours. Set on
+# the child only when a lane slice is active (see _lane_cpu_slice), so a
+# generator's thread pool matches the cores it can actually run on.
+_BLAS_ENV_KEYS = (
+    "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS",
+)
+
+# Lane-geometry env stamped into each worker lane's environment at DISPATCH
+# (see cascade.trainer.remote.build_remote_command). Only the orchestrator
+# knows a pod's lane fan-out — the pod-side view (a masked
+# CUDA_VISIBLE_DEVICES, torch seeing one device) can't distinguish a
+# single-GPU pod from one lane of eight.
+LANE_INDEX_ENV = "CASCADE_LANE_INDEX"
+LANE_COUNT_ENV = "CASCADE_LANE_COUNT"
+
 _NETNS_PROBE: bool | None = None
 
 
 # ───────────────────────────────── parent ──────────────────────────────────
+
+
+def _lane_cpu_slice() -> tuple[set[int], int] | None:
+    """This worker lane's contiguous CPU-core slice, from dispatch-injected env.
+
+    On a multi-GPU cluster pod the orchestrator runs one worker lane per GPU
+    (``CUDA_VISIBLE_DEVICES=<lane>``) but the kernel gives every lane ALL
+    cores, so one lane's multithreaded generator can starve its neighbours'
+    training loops. The dispatcher — the only party that knows the pod's lane
+    fan-out — stamps :data:`LANE_INDEX_ENV`/:data:`LANE_COUNT_ENV` into each
+    lane's env (see ``remote.build_remote_command``); lane ``i`` of ``N`` then
+    owns the contiguous cores ``[i*k, (i+1)*k)`` with ``k = max(1, cpu_count
+    // N)``, so the split is deterministic and equal.
+
+    The total-core figure is ``len(os.sched_getaffinity(0))``, not
+    ``os.cpu_count()``: on docker-template pods (lium) ``cpu_count`` reports
+    the HOST's cores even when the container is cgroup/cpuset-limited, while
+    the affinity set reflects what this process may actually use — and the
+    slice is carved out of the *allowed* core ids, so it stays inside any
+    pre-existing container limit.
+
+    Returns ``(cores, slice_size)``, or ``None`` when the env is absent or
+    malformed (local runs, single-lane pods, tests) — callers then keep the
+    uncapped legacy behavior. With more lanes than cores the slice wraps
+    modulo the core count so every lane still gets at least one VALID core
+    (an out-of-range set would make ``sched_setaffinity`` fail).
+    """
+    idx_s = os.environ.get(LANE_INDEX_ENV, "")
+    cnt_s = os.environ.get(LANE_COUNT_ENV, "")
+    if not (idx_s.isdigit() and cnt_s.isdigit()):
+        return None
+    idx, cnt = int(idx_s), int(cnt_s)
+    if cnt <= 1 or idx >= cnt:  # single lane, or inconsistent geometry
+        return None
+    try:
+        allowed = sorted(os.sched_getaffinity(0))
+    except (AttributeError, OSError):  # non-Linux: no affinity API
+        allowed = list(range(os.cpu_count() or 1))
+    ncpu = len(allowed) or 1
+    k = max(1, ncpu // cnt)
+    start = (idx * k) % ncpu
+    cores = set(allowed[start:start + k])
+    return cores, len(cores)
 
 
 def _netns_available() -> bool:
@@ -136,6 +194,10 @@ def stream_cpu_rlimit(
     parent terminates the child when training ends. This is only the backstop
     for a wedged parent, so generous is correct. ``None`` keeps the legacy cap
     (short-lived screens with no known wall bound).
+
+    ``nproc`` is the child's real core ceiling: on a lane-pinned pod that is
+    the lane's slice size (see :func:`_lane_cpu_slice`) — budgeting the whole
+    box would let one lane's cap absorb every other lane's share.
     """
     if max_wall_seconds is None:
         return int(max_generate_seconds)
@@ -143,8 +205,22 @@ def stream_cpu_rlimit(
 
 
 def _child_env(*, gpu: bool = False) -> dict[str, str]:
+    """Minimal allowlisted env for the sandbox child, with lane thread caps.
+
+    When a lane slice is active, BLAS/threadpool env caps the generator's
+    threads at the slice size — a pool sized to the whole box would just
+    contend inside the lane's affinity set. No slice ⇒ no caps (legacy
+    behavior, local runs). NOTE: a threaded-BLAS corpus digest depends on the
+    thread count, and the slice size varies with pod shape — a future change
+    may pin this to a contract-configured constant for stream_cpu audit
+    reproducibility.
+    """
     keys = _SAFE_ENV_KEYS + (_GPU_ENV_KEYS if gpu else ())
     env = {k: os.environ[k] for k in keys if k in os.environ}
+    lane = _lane_cpu_slice()
+    if lane is not None:
+        for key in _BLAS_ENV_KEYS:
+            env[key] = str(lane[1])
     # Ensure the child can import cascade even without an editable install.
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
     return env
@@ -240,7 +316,15 @@ def run_in_sandbox(
         timeout = int(cfg.max_generate_seconds) + 30
         preexec = None
         if os.name == "posix":
+            lane = _lane_cpu_slice()
+
             def preexec() -> None:  # runs post-fork, pre-exec in the child
+                if lane is not None:
+                    # Same degrade-silently posture as _apply_rlimits: affinity
+                    # can fail in odd container setups, and fairness is
+                    # best-effort — never the reason a generator fails.
+                    with contextlib.suppress(OSError):
+                        os.sched_setaffinity(0, lane[0])
                 _apply_rlimits(cfg.max_memory_mb, cfg.max_generate_seconds, max_fsize)
 
         try:
@@ -377,12 +461,22 @@ def stream_series(
     if use_netns:
         argv = ["unshare", "--user", "--map-root-user", "--net", *argv]
 
+    # nproc = the lane's slice size when pinned (that IS the child's real core
+    # ceiling — a host-wide count would over-budget every lane's cumulative
+    # CPU cap), the whole box otherwise.
+    lane = _lane_cpu_slice()
     cpu_cap = stream_cpu_rlimit(
-        cfg.max_generate_seconds, max_wall_seconds, os.cpu_count() or 1
+        cfg.max_generate_seconds, max_wall_seconds,
+        lane[1] if lane is not None else (os.cpu_count() or 1),
     )
     preexec = None
     if os.name == "posix":
         def preexec() -> None:
+            if lane is not None:
+                # Degrade-silently like _apply_rlimits: affinity can fail in
+                # odd container setups, and fairness must never fail a run.
+                with contextlib.suppress(OSError):
+                    os.sched_setaffinity(0, lane[0])
             _apply_rlimits(
                 cfg.max_memory_mb, cpu_cap, 256 * 1024 * 1024, set_as=not gpu
             )

@@ -880,15 +880,22 @@ class TrainerRunner:
         heat slot or (for the king) the entire round. With a single host the
         retry re-uses it, since the failure may be transient rather than the
         box. A second failure propagates to the caller's policy (drop the
-        challenger / abort the round)."""
+        challenger / abort the round).
+
+        This seam also knows the round's full lane fan-out (``hosts``), so it
+        computes each pod's lane count here and hands it to the dispatch —
+        the pod-side sandbox slices its CPU cores off that geometry (see
+        ``remote.pod_lane_count`` / ``sandbox._lane_cpu_slice``)."""
+        from .remote import pod_lane_count
+
         host = hosts[i % len(hosts)]
         try:
-            return disp.dispatch(host, **kw)
+            return disp.dispatch(host, lane_count=pod_lane_count(host, hosts), **kw)
         except Exception as e:  # noqa: BLE001 — any dispatch failure is retryable once
             retry_host = hosts[(i + 1) % len(hosts)]
             log.warning("%s failed on %s (%s); retrying on %s", describe,
                         getattr(host, "name", host), e, getattr(retry_host, "name", retry_host))
-            return disp.dispatch(retry_host, **kw)
+            return disp.dispatch(retry_host, lane_count=pod_lane_count(retry_host, hosts), **kw)
 
     def _heat_train_remote(
         self,

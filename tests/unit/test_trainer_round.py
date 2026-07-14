@@ -330,7 +330,7 @@ def test_run_round_remote_heat_dispatches_to_pod(cfg, tmp_path, monkeypatch):
             pass
 
         def dispatch(self, host, *, gen_ref, uid, hotkey, role, base_seed, block,
-                     arch_preset=None, train_hours=None, repo_suffix=""):
+                     arch_preset=None, train_hours=None, repo_suffix="", lane_count=None):
             dispatched.append({"hotkey": hotkey, "role": role, "arch_preset": arch_preset,
                                "train_hours": train_hours, "repo_suffix": repo_suffix})
             return TrainedEntry(
@@ -454,7 +454,7 @@ def test_remote_dispatch_retries_once_on_next_host(cfg, tmp_path, monkeypatch):
             pass
 
         def dispatch(self, host, *, gen_ref, uid, hotkey, role, base_seed, block,
-                     arch_preset=None, train_hours=None, repo_suffix=""):
+                     arch_preset=None, train_hours=None, repo_suffix="", lane_count=None):
             key = (hotkey, role, train_hours is not None)
             calls.setdefault(key, []).append(host)
             if key not in failed_once:
@@ -573,7 +573,7 @@ def test_stage_tagged_hosts_split_heat_from_final(cfg, tmp_path, monkeypatch):
             pass
 
         def dispatch(self, host, *, gen_ref, uid, hotkey, role, base_seed, block,
-                     arch_preset=None, train_hours=None, repo_suffix=""):
+                     arch_preset=None, train_hours=None, repo_suffix="", lane_count=None):
             dispatched.append((host.name, role, train_hours is not None))
             return TrainedEntry(
                 miner_hotkey=hotkey, miner_uid=uid, role=role, gen_ref=gen_ref,
@@ -630,7 +630,7 @@ def test_heat_dispatch_uses_tight_ssh_timeout(cfg, tmp_path, monkeypatch):
             self.timeout_seconds = timeout_seconds
 
         def dispatch(self, host, *, gen_ref, uid, hotkey, role, base_seed, block,
-                     arch_preset=None, train_hours=None, repo_suffix=""):
+                     arch_preset=None, train_hours=None, repo_suffix="", lane_count=None):
             timeouts.append((train_hours is not None, self.timeout_seconds))
             return TrainedEntry(
                 miner_hotkey=hotkey, miner_uid=uid, role=role, gen_ref=gen_ref,

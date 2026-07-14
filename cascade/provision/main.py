@@ -38,7 +38,7 @@ from .health import HealthGate, HealthReport
 from dataclasses import replace
 
 from .loop import PodProfile, ProvisionerLoop, RenderSettings, parse_plan_output
-from .policy import ProvisionPolicy, StagePolicy
+from .policy import ProvisionPolicy, SkuCandidate, StagePolicy
 
 log = logging.getLogger("cascade.provision.main")
 
@@ -68,9 +68,22 @@ def build_stage_policy(raw: dict, stage: str) -> StagePolicy:
     overhead = float(raw.get("slot_overhead", 1.3))
     if overhead < 1.0:
         raise ProvisionError(f"[provisioner.{stage}] slot_overhead must be >= 1.0; got {overhead}")
+    candidates = []
+    for i, c in enumerate(raw.get("candidate", ())):
+        csku = str(c.get("sku", "")).strip()
+        if not csku:
+            raise ProvisionError(f"[[provisioner.{stage}.candidate]] #{i}: sku required")
+        cgpus = int(c.get("gpus_per_pod", 1))
+        cprice = float(c.get("max_price_hr", price))
+        if cgpus < 1 or cprice <= 0:
+            raise ProvisionError(f"[[provisioner.{stage}.candidate]] #{i} ({csku}): "
+                                 f"gpus_per_pod >= 1 and max_price_hr > 0 required")
+        candidates.append(SkuCandidate(sku=csku, market_sku=str(c.get("market_sku", "")).strip(),
+                                       gpus_per_pod=cgpus, max_price_hr=cprice))
     return StagePolicy(sku=sku, gpus_per_pod=gpus, max_pods=max_pods,
                        providers=providers, max_price_hr=price, slot_overhead=overhead,
-                       market_sku=str(raw.get("market_sku", "")).strip())
+                       market_sku=str(raw.get("market_sku", "")).strip(),
+                       candidates=tuple(candidates))
 
 
 def build_policy(raw: dict, *, epoch_blocks: int) -> ProvisionPolicy:
@@ -137,13 +150,18 @@ def make_health_check(policy: ProvisionPolicy, render: RenderSettings, *,
 
     gates: dict = {}
 
-    def check(addr, stage: str, provider: str = "") -> HealthReport:
+    def check(addr, stage: str, provider: str = "", *,
+              sku: str = "", gpus: int = 0) -> HealthReport:
         prof = render.profile_for(provider)
-        key = (stage, provider)
+        sp = policy.heat if stage == "heat" else policy.final
+        # The gate asserts what was ACTUALLY rented — with SKU fallback the
+        # round's device can be any configured candidate, not just the primary.
+        gate_sku = sku or sp.sku
+        gate_gpus = gpus or sp.gpus_per_pod
+        key = (stage, provider, gate_sku, gate_gpus)
         if key not in gates:
-            sp = policy.heat if stage == "heat" else policy.final
             gates[key] = HealthGate(
-                sku=sp.sku, gpus=sp.gpus_per_pod,
+                sku=gate_sku, gpus=gate_gpus,
                 remote_python=prof.remote_python, workdir=prof.workdir,
                 image_digest=image_digest, min_disk_gb=min_disk_gb,
                 hippius_probe=hippius_probe,

@@ -72,6 +72,7 @@ from .policy import (
     should_trigger,
     size_fleet,
     teardown_due,
+    pods_for_slots,
     within_budget,
 )
 from .state import (
@@ -247,14 +248,17 @@ class ProvisionerLoop:
                  round_id, payload["eligible_challengers"],
                  fleet.heat.pods, fleet.heat.slots, fleet.final.pods, fleet.final.slots)
 
-        chosen: dict[str, tuple[object, float]] = {}
+        # Per stage: the first (SKU candidate × provider) combination with
+        # capacity for the WHOLE stage fleet wins — a stage never mixes SKUs
+        # (within-round fairness by construction; see StagePolicy.candidates).
+        chosen: dict[str, tuple[object, float, object, int]] = {}
         for stage, sp, fl in (("heat", self.policy.heat, fleet.heat),
                               ("final", self.policy.final, fleet.final)):
             if fl.pods <= 0:
                 continue
-            prov, price = self._pick_provider(sp, fl.pods)
-            if prov is not None:
-                chosen[stage] = (prov, price)
+            picked = self._pick_offer(sp, fl.slots, stage)
+            if picked is not None:
+                chosen[stage] = picked
         if not chosen:
             # No provider anywhere: publish an EMPTY hosts file so the trainer
             # trains this round locally — the round is degraded, never lost.
@@ -263,9 +267,10 @@ class ProvisionerLoop:
             self._write_hosts([])
             return
 
-        offers = {stage: price for stage, (_prov, price) in chosen.items()}
-        ok, projected = within_budget(fleet, offers, self.policy.max_spend_per_round,
-                                      self.ttl_hours)
+        projected = sum(pods * price * self.ttl_hours
+                        for (_prov, price, _cand, pods) in chosen.values())
+        offers = {stage: price for stage, (_p, price, _c, _n) in chosen.items()}
+        ok = projected <= self.policy.max_spend_per_round
         if not ok:
             log.error("round %d REFUSED by budget breaker: worst-case $%.2f > cap $%.2f "
                       "(offers %s); clearing hosts", round_id, projected,
@@ -276,11 +281,10 @@ class ProvisionerLoop:
                  round_id, projected, self.policy.max_spend_per_round)
 
         if self.dry_run:
-            for stage, (prov, price) in chosen.items():
-                fl = fleet.heat if stage == "heat" else fleet.final
+            for stage, (prov, price, cand, pods) in chosen.items():
                 log.info("[dry-run] round %d %s: WOULD rent %d × %d-GPU %s pod(s) on %s "
-                         "@ $%.2f/hr (tag cascade-%d-%s)", round_id, stage, fl.pods,
-                         fl.gpus_per_pod, _sku_for(self.policy, stage), prov.name,
+                         "@ $%.2f/hr (tag cascade-%d-%s)", round_id, stage, pods,
+                         cand.gpus_per_pod, cand.sku, prov.name,
                          price, round_id, stage)
             return
 
@@ -294,9 +298,8 @@ class ProvisionerLoop:
         self._save()
 
         rented: dict[str, list[tuple[PodInstance, PodAddress]]] = {}
-        for stage, (prov, _price) in chosen.items():
-            fl = fleet.heat if stage == "heat" else fleet.final
-            healthy = self._rent_stage(round_id, stage, prov, fl)
+        for stage, (prov, _price, cand, pods) in chosen.items():
+            healthy = self._rent_stage(round_id, stage, prov, cand, pods)
             if healthy:
                 rented[stage] = healthy
         if not rented:
@@ -308,34 +311,50 @@ class ProvisionerLoop:
         self._state = replace(self._state, published=True)
         self._save()
 
-    def _pick_provider(self, sp, count: int) -> tuple[object, float] | tuple[None, None]:
-        """First provider in the stage's priority order with capacity and an
-        acceptable price. Any adapter fault (including ProvisionError — a
-        missing CLI or key) just skips that provider: a broken adapter means
-        fewer offers, never a dead provisioner."""
-        for name in sp.providers:
-            prov = self.providers.get(name)
-            if prov is None:
-                log.warning("provider %r not configured; skipping", name)
+    def _pick_offer(self, sp, slots: int,
+                    stage: str) -> tuple[object, float, object, int] | None:
+        """First (SKU candidate × provider) with capacity for the whole fleet.
+
+        Candidates in the stage's configured order, providers in priority order
+        within each candidate. The pod count is re-derived per candidate — an
+        8× fallback needs fewer pods for the same slots than a 4× primary. Any
+        adapter fault just skips that provider: a broken adapter means fewer
+        offers, never a dead provisioner. Returns ``(provider, price,
+        candidate, pods)`` or ``None``.
+        """
+        for cand in sp.sku_candidates:
+            pods = pods_for_slots(slots, cand.gpus_per_pod, sp.max_pods)
+            if pods <= 0:
                 continue
-            try:
-                if not prov.available(sp.marketplace_sku, count, gpus=sp.gpus_per_pod):
-                    log.info("provider %s: no capacity for %d×%s", name, count, sp.sku)
+            for name in sp.providers:
+                prov = self.providers.get(name)
+                if prov is None:
+                    log.warning("provider %r not configured; skipping", name)
                     continue
-            except Exception as e:  # noqa: BLE001
-                log.warning("provider %s availability probe failed (%s); skipping", name, e)
-                continue
-            price = self._offer_price(prov, sp.marketplace_sku)
-            if price is None:
-                # Unknown price ⇒ assume the stage cap: the budget breaker then
-                # projects at the worst price we were willing to pay.
-                price = sp.max_price_hr
-            if price > sp.max_price_hr:
-                log.warning("provider %s: %s at $%.2f/hr exceeds stage cap $%.2f/hr; skipping",
-                            name, sp.sku, price, sp.max_price_hr)
-                continue
-            return prov, float(price)
-        return None, None
+                try:
+                    if not prov.available(cand.marketplace_sku, pods,
+                                          gpus=cand.gpus_per_pod):
+                        log.info("provider %s: no capacity for %d × %dx%s",
+                                 name, pods, cand.gpus_per_pod, cand.sku)
+                        continue
+                except Exception as e:  # noqa: BLE001
+                    log.warning("provider %s availability probe failed (%s); skipping",
+                                name, e)
+                    continue
+                price = self._offer_price(prov, cand.marketplace_sku)
+                if price is None:
+                    # Unknown price ⇒ assume the candidate cap: the budget
+                    # breaker then projects at the worst price we accepted.
+                    price = cand.max_price_hr
+                if price > cand.max_price_hr:
+                    log.warning("provider %s: %s at $%.2f/hr exceeds cap $%.2f/hr; skipping",
+                                name, cand.sku, price, cand.max_price_hr)
+                    continue
+                if cand is not sp.sku_candidates[0]:
+                    log.info("%s stage falling back to %dx%s on %s (primary had no offer)",
+                             stage, cand.gpus_per_pod, cand.sku, name)
+                return prov, float(price), cand, pods
+        return None
 
     @staticmethod
     def _offer_price(prov: object, sku: str) -> float | None:
@@ -352,11 +371,11 @@ class ProvisionerLoop:
     # ── RENT + BOOT + HEALTH (with one replacement per failed pod) ───────────
 
     def _rent_stage(self, round_id: int, stage: str, prov: object,
-                    fl: StageFleet) -> list[tuple[PodInstance, PodAddress]]:
+                    cand, pods: int) -> list[tuple[PodInstance, PodAddress]]:
         spec = LaunchSpec(
-            sku=_market_sku_for(self.policy, stage), count=fl.pods, image=self.render.image,
+            sku=cand.marketplace_sku, count=pods, image=self.render.image,
             ssh_pubkey=self.render.ssh_pubkey, ssh_port=self.render.ssh_port,
-            name_prefix=f"{POD_TAG}{round_id}-{stage}", gpus_per_pod=fl.gpus_per_pod,
+            name_prefix=f"{POD_TAG}{round_id}-{stage}", gpus_per_pod=cand.gpus_per_pod,
         )
         try:
             pod_ids = prov.launch(spec)
@@ -366,12 +385,12 @@ class ProvisionerLoop:
         # Write-ahead: the ledger owns these ids BEFORE we do anything else
         # with them — a crash from here on still tears them down on restart.
         for pid in pod_ids:
-            self._state = add_instance(self._state, self._instance(prov, pid, stage))
+            self._state = add_instance(self._state, self._instance(prov, pid, stage, cand))
         self._save()
 
         healthy: list[tuple[PodInstance, PodAddress]] = []
         for i, pid in enumerate(pod_ids):
-            addr = self._boot_and_gate(prov, pid, stage)
+            addr = self._boot_and_gate(prov, pid, stage, cand)
             if addr is not None:
                 healthy.append((self._find_instance(pid), addr))
                 continue
@@ -386,9 +405,9 @@ class ProvisionerLoop:
             except Exception as e:  # noqa: BLE001
                 log.error("round %d %s: replacement launch failed: %s", round_id, stage, e)
                 continue
-            self._state = add_instance(self._state, self._instance(prov, rid, stage))
+            self._state = add_instance(self._state, self._instance(prov, rid, stage, cand))
             self._save()
-            raddr = self._boot_and_gate(prov, rid, stage)
+            raddr = self._boot_and_gate(prov, rid, stage, cand)
             if raddr is not None:
                 healthy.append((self._find_instance(rid), raddr))
             else:
@@ -397,7 +416,8 @@ class ProvisionerLoop:
                 self._terminate_and_drop(prov, rid)
         return healthy
 
-    def _boot_and_gate(self, prov: object, pid: str, stage: str) -> PodAddress | None:
+    def _boot_and_gate(self, prov: object, pid: str, stage: str,
+                       cand=None) -> PodAddress | None:
         try:
             if not prov.wait_ready(pid, timeout=self.ready_timeout):
                 log.warning("pod %s not provider-ready within %.0fs", pid, self.ready_timeout)
@@ -418,7 +438,10 @@ class ProvisionerLoop:
                     log.warning("pod %s bootstrap failed", pid)
                     return None
             if self.health_check is not None:
-                report = self.health_check(addr, stage, prov.name)
+                report = (self.health_check(addr, stage, prov.name,
+                                            sku=cand.sku, gpus=cand.gpus_per_pod)
+                          if cand is not None else
+                          self.health_check(addr, stage, prov.name))
                 if not report.ok:
                     log.warning("pod %s failed health gate: %s", pid, report.summary())
                     return None
@@ -451,7 +474,7 @@ class ProvisionerLoop:
             entries = by_stage.get(stage)
             if not entries:
                 continue
-            fleet_gpus = _gpus_for(self.policy, stage)
+            fleet_gpus = entries[0][0].gpus or _gpus_for(self.policy, stage)
             prof = self.render.profile_for(entries[0][0].provider)
             sections.append(render_hosts_toml(
                 [addr for _inst, addr in entries],
@@ -635,10 +658,12 @@ class ProvisionerLoop:
 
     # ── small helpers ────────────────────────────────────────────────────────
 
-    def _instance(self, prov: object, pid: str, stage: str) -> PodInstance:
+    def _instance(self, prov: object, pid: str, stage: str, cand=None) -> PodInstance:
         rented_iso = datetime.fromtimestamp(self.clock(), tz=UTC).isoformat()
         return PodInstance(provider=prov.name, instance_id=pid, stage=stage,
-                           rented_at_iso=rented_iso)
+                           rented_at_iso=rented_iso,
+                           sku=(cand.sku if cand is not None else ""),
+                           gpus=(cand.gpus_per_pod if cand is not None else 1))
 
     def _find_instance(self, pid: str) -> PodInstance:
         return next(i for i in self._state.instances if i.instance_id == pid)

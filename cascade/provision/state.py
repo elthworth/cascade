@@ -47,6 +47,12 @@ class PodInstance:
     instance_id: str
     stage: str                       # "heat" | "final"
     rented_at_iso: str
+    # The candidate actually rented (SKU fallback makes this vary per round);
+    # persisted so a mid-round restart republishes hosts with the RIGHT lane
+    # fan-out and the health gate re-asserts the right device. Defaults keep
+    # pre-fallback ledgers loading.
+    sku: str = ""
+    gpus: int = 1
 
 
 @dataclass(frozen=True)
@@ -127,6 +133,8 @@ def save_state(path: Path | str, state: RoundState) -> None:
                 "instance_id": i.instance_id,
                 "stage": i.stage,
                 "rented_at_iso": i.rented_at_iso,
+                "sku": i.sku,
+                "gpus": i.gpus,
             }
             for i in state.instances
         ],
@@ -157,6 +165,8 @@ def load_state(path: Path | str) -> RoundState | None:
                 instance_id=str(i["instance_id"]),
                 stage=str(i["stage"]),
                 rented_at_iso=str(i["rented_at_iso"]),
+                sku=str(i.get("sku", "")),
+                gpus=int(i.get("gpus", 1)),
             )
             for i in raw.get("instances", [])
         ),

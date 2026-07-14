@@ -98,5 +98,5 @@ def test_saved_json_is_stable_and_human_readable(tmp_path):
     assert raw["round_id"] == "900" and raw["published"] is False
     assert raw["instances"][0] == {
         "provider": "lium", "instance_id": "h0", "stage": "heat",
-        "rented_at_iso": "2026-07-13T00:00:00+00:00",
+        "rented_at_iso": "2026-07-13T00:00:00+00:00", "sku": "", "gpus": 1,
     }

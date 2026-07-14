@@ -30,6 +30,8 @@ from dataclasses import dataclass
 
 __all__ = [
     "FleetPlan",
+    "SkuCandidate",
+    "pods_for_slots",
     "ProvisionPolicy",
     "StageFleet",
     "StagePolicy",
@@ -38,6 +40,27 @@ __all__ = [
     "teardown_due",
     "within_budget",
 ]
+
+
+@dataclass(frozen=True)
+class SkuCandidate:
+    """One rentable (SKU, shape, price) option for a stage.
+
+    ``sku`` is the exact nvidia-smi device string (the health gate asserts it
+    on the pod that was ACTUALLY rented); ``market_sku`` the marketplace's
+    alias when it differs; ``gpus_per_pod`` the pod shape to rent;
+    ``max_price_hr`` the per-pod-hour cap for THIS candidate (a 4× box
+    legitimately costs more than a 1× one).
+    """
+
+    sku: str
+    market_sku: str = ""
+    gpus_per_pod: int = 1
+    max_price_hr: float = 0.0
+
+    @property
+    def marketplace_sku(self) -> str:
+        return self.market_sku or self.sku
 
 
 @dataclass(frozen=True)
@@ -68,10 +91,25 @@ class StagePolicy:
     # nvidia-smi device string ("A6000" on lium vs "NVIDIA RTX A6000" on the
     # pod). Empty = same as ``sku``. The health gate ALWAYS asserts ``sku``.
     market_sku: str = ""
+    # Ordered SKU fallbacks tried AFTER the primary (sku/gpus_per_pod/
+    # max_price_hr above): the round takes the first candidate × provider with
+    # capacity for the WHOLE stage fleet. Heat scores are only ever compared
+    # within a round (they rank the field, pick finalists, get discarded), so
+    # round-to-round SKU variance costs nothing — within-round fairness stays
+    # perfect because a stage never mixes candidates.
+    candidates: tuple[SkuCandidate, ...] = ()
 
     @property
     def marketplace_sku(self) -> str:
         return self.market_sku or self.sku
+
+    @property
+    def sku_candidates(self) -> tuple[SkuCandidate, ...]:
+        """The primary shape first, then the configured fallbacks, in order."""
+        primary = SkuCandidate(sku=self.sku, market_sku=self.market_sku,
+                               gpus_per_pod=self.gpus_per_pod,
+                               max_price_hr=self.max_price_hr)
+        return (primary, *self.candidates)
 
 
 @dataclass(frozen=True)
@@ -117,6 +155,18 @@ class FleetPlan:
 
     heat: StageFleet
     final: StageFleet
+
+
+def pods_for_slots(slots: int, gpus_per_pod: int, max_pods: int) -> int:
+    """Pods needed to serve ``slots`` GPU-slots at a candidate's shape.
+
+    ``max_pods`` clamps (a clamped stage still completes, in serial waves);
+    ``max_pods == 0`` means the stage is unmanaged — always 0 pods. Zero slots
+    rents nothing regardless of shape.
+    """
+    if slots <= 0 or max_pods <= 0:
+        return 0
+    return min(math.ceil(slots / max(1, gpus_per_pod)), max_pods)
 
 
 def should_trigger(

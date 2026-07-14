@@ -279,9 +279,18 @@ def main(argv: list[str] | None = None) -> int:
     # failure). Give the cascade tree its OWN handler and stop propagating —
     # nothing bittensor does to root can mute us again.
     cascade_logger = logging.getLogger("cascade")
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    handler.setFormatter(fmt)
     cascade_logger.addHandler(handler)
+    # A StreamHandler was NOT enough: bittensor's logging machinery replaces
+    # sys.stderr itself at chain connect, so the handler's stream reference
+    # goes dark (observed live TWICE, 2026-07-14). A FileHandler owns its own
+    # fd — nothing that swaps process stdio can mute it. This file is the
+    # service's source of truth; the console stream is best-effort garnish.
+    file_handler = logging.FileHandler("provisioner-service.log")
+    file_handler.setFormatter(fmt)
+    cascade_logger.addHandler(file_handler)
     cascade_logger.setLevel(args.log_level)
     cascade_logger.propagate = False
     try:

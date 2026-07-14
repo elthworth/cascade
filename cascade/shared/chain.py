@@ -325,11 +325,18 @@ class ChainClient:
                 # One miner's malformed (non-hex) revealed commitment makes
                 # bittensor's BATCH decoder raise for the WHOLE netuid — which
                 # would blind the trainer to every other miner's submission (a
-                # field-wide DoS from a single bad commit). Fall back to a
-                # per-UID decode that skips only the undecodable entry.
+                # field-wide DoS from a single bad commit). Read the raw store
+                # ourselves: ONE query_map for the netuid, tolerant per-entry
+                # decode (~1s), instead of N per-UID queries (~13 min live —
+                # long enough to blow the provisioner's rental window).
                 log.warning("bulk revealed-commitment decode failed (%s); "
-                            "falling back to per-UID decode", e)
-                return self._revealed_per_uid(sub, meta, coldkeys)
+                            "reading the raw store map", e)
+                try:
+                    return self._revealed_raw_map(sub, uid_by_hotkey, coldkeys)
+                except Exception as e2:  # noqa: BLE001
+                    log.warning("raw store map failed (%s); "
+                                "falling back to per-UID decode", e2)
+                    return self._revealed_per_uid(sub, meta, coldkeys)
             for hotkey, reveals in revealed.items():
                 uid = uid_by_hotkey.get(str(hotkey))
                 if uid is None or not reveals:
@@ -369,7 +376,12 @@ class ChainClient:
         q = sub.substrate.query(module="Commitments",
                                 storage_function="RevealedCommitments",
                                 params=[self.netuid, hotkey])
-        v = getattr(q, "value", None)
+        return self._decode_reveal_entries(getattr(q, "value", None))
+
+    @staticmethod
+    def _decode_reveal_entries(v: Any) -> list[tuple[int, str]]:
+        """Decode a RevealedCommitments storage value (either rendering) into
+        ``[(block, payload)]``, skipping undecodable entries."""
         out: list[tuple[int, str]] = []
         for entry in (v or []):
             try:
@@ -388,6 +400,32 @@ class ChainClient:
                     out.append((int(block), payload))
             except Exception:  # noqa: BLE001 — one bad entry is not the field
                 continue
+        return out
+
+    def _revealed_raw_map(self, sub: Any, uid_by_hotkey: dict[str, int],
+                          coldkeys: list | None) -> list[Commitment]:
+        """All revealed commitments for the netuid in ONE ``query_map``, with the
+        tolerant both-renderings decode per entry.
+
+        Verified live on testnet: 38 hotkeys in ~1.1s where the per-UID path
+        takes ~13 minutes — the difference between making and missing the
+        provisioner's pre-boundary rental window."""
+        qm = sub.substrate.query_map(module="Commitments",
+                                     storage_function="RevealedCommitments",
+                                     params=[self.netuid], page_size=200)
+        out: list[Commitment] = []
+        for key, value in qm:
+            hotkey = str(getattr(key, "value", key))
+            uid = uid_by_hotkey.get(hotkey)
+            if uid is None:
+                continue
+            entries = self._decode_reveal_entries(getattr(value, "value", value))
+            if not entries:
+                continue
+            block, payload = max(entries, key=lambda r: int(r[0]))
+            out.append(Commitment(uid=uid, hotkey=hotkey,
+                                  coldkey=str(coldkeys[uid]) if coldkeys else None,
+                                  payload=payload, commit_block=int(block)))
         return out
 
     def _revealed_per_uid(self, sub: Any, meta: Any, coldkeys: list | None) -> list[Commitment]:

@@ -123,19 +123,34 @@ def build_policy(raw: dict, *, epoch_blocks: int) -> ProvisionPolicy:
 # ── real boundaries (adapter surface, not unit-tested) ───────────────────────
 
 
-def make_plan_fn(chain_toml: Path | None, work_root: Path) -> callable:
+def plan_argv(chain_toml: Path | None, work_root: Path, network: str | None) -> list[str]:
+    """The exact ``--plan-only`` invocation. The network MUST be forwarded:
+    the trainer CLI defaults to finney, so an unforwarded testnet provisioner
+    counts the field on MAINNET's netuid — someone else's subnet — and plans
+    eligible=0 every round (observed live: three consecutive windows)."""
+    argv = ["uv", "run", "cascade-trainer", "--plan-only", "--work-root", str(work_root)]
+    if chain_toml is not None:
+        argv += ["--chain-toml", str(chain_toml)]
+    if network is not None:
+        argv += ["--network", network]
+    return argv
+
+
+def make_plan_fn(chain_toml: Path | None, work_root: Path,
+                 network: str | None = None) -> callable:
     """The COUNT boundary: run ``cascade-trainer --plan-only`` and parse its JSON.
 
     Through ``uv run`` so the trainer resolves in the project venv regardless
     of how the provisioner itself was launched (systemd's PATH is minimal).
     The subprocess needs no wallet and no GPU — it only counts the field.
     """
-    argv = ["uv", "run", "cascade-trainer", "--plan-only", "--work-root", str(work_root)]
-    if chain_toml is not None:
-        argv += ["--chain-toml", str(chain_toml)]
+    argv = plan_argv(chain_toml, work_root, network)
 
     def plan() -> dict:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=600)
+        try:
+            proc = subprocess.run(argv, capture_output=True, text=True, timeout=600)
+        except subprocess.TimeoutExpired as e:
+            raise ProvisionError("--plan-only timed out after 600s") from e
         if proc.returncode != 0:
             raise ProvisionError(
                 f"--plan-only failed (rc={proc.returncode}): {(proc.stderr or '')[-500:]}")
@@ -447,7 +462,7 @@ def _run(args) -> int:
         providers=providers,
         chain_client=ChainClient.from_config(cfg, network=args.network),
         chain_client_factory=lambda: ChainClient.from_config(cfg, network=args.network),
-        plan_fn=make_plan_fn(args.chain_toml, work_root),
+        plan_fn=make_plan_fn(args.chain_toml, work_root, args.network),
         render=render,
         hosts_path=hosts_path,
         work_root=work_root,

@@ -710,10 +710,17 @@ def _eval_loop(tmp_path, *, store, prov=None, clock=None, dry_run=False,
     return loop, prov
 
 
+def _join_eval(lp):
+    t = getattr(lp, "_eval_thread", None)
+    if t is not None:
+        t.join(timeout=10)
+
+
 def test_new_manifest_rents_exactly_one_eval_pod_once(tmp_path):
     store = FakeStore({"manifests/latest.json": '{"round_id": "111"}'})
     loop, prov = _eval_loop(tmp_path, store=store)
     loop.run_once()
+    _join_eval(loop)
     assert prov.launched == ["cascade-111-eval-0"]           # one pod, named for the round
 
     # Round-trip through the trainer's REAL loader (the validator's parser).
@@ -731,8 +738,10 @@ def test_new_manifest_rents_exactly_one_eval_pod_once(tmp_path):
     assert st.last_evaled_round == "111"                     # persisted rent-once latch
     assert {(i.stage, i.instance_id) for i in st.instances} == {("eval", "cascade-111-eval-0")}
 
-    loop.run_once()                                          # same manifest: idempotent
     loop.run_once()
+    _join_eval(loop)                                          # same manifest: idempotent
+    loop.run_once()
+    _join_eval(loop)
     assert prov.launched == ["cascade-111-eval-0"]
 
 
@@ -740,8 +749,10 @@ def test_eval_latch_persists_across_restart(tmp_path):
     store = FakeStore({"manifests/latest.json": '{"round_id": "111"}'})
     loop1, prov = _eval_loop(tmp_path, store=store)
     loop1.run_once()
+    _join_eval(loop1)
     loop2, prov2 = _eval_loop(tmp_path, store=store, prov=prov)  # fresh process, same ledger
     loop2.run_once()
+    _join_eval(loop2)
     assert prov.launched == ["cascade-111-eval-0"]           # no double rent
     assert "cascade-111-eval-0" in prov.live                 # and the owned pod survives
 
@@ -751,19 +762,23 @@ def test_receipt_tears_down_eval_pod_and_clears_hosts_file(tmp_path):
     store = FakeStore({"manifests/latest.json": '{"round_id": "111"}'})
     loop, prov = _eval_loop(tmp_path, store=store, clock=clock)
     loop.run_once()
+    _join_eval(loop)
     clock.t += 600.0
     loop.run_once()
+    _join_eval(loop)
     assert "cascade-111-eval-0" in prov.live                 # no receipt yet: pod stays
     # The validator publishes the round's receipt under ITS OWN prefix.
     store.texts["receipts/5Val/round-111.json"] = '{"round_id": "111"}'
     clock.t += 600.0
     loop.run_once()
+    _join_eval(loop)
     assert prov.terminated == ["cascade-111-eval-0"] and prov.live == {}
     with pytest.raises(RemoteDispatchError):
         load_hosts(tmp_path / "eval_hosts.toml")             # cleared → validator falls local
     st = load_state(tmp_path / "state.json")
     assert st.instances == () and st.last_evaled_round == "111"
-    loop.run_once()                                          # receipted round never re-rents
+    loop.run_once()
+    _join_eval(loop)                                          # receipted round never re-rents
     assert prov.launched == ["cascade-111-eval-0"]
 
 
@@ -771,8 +786,10 @@ def test_newer_manifest_replaces_the_eval_pod(tmp_path):
     store = FakeStore({"manifests/latest.json": '{"round_id": "111"}'})
     loop, prov = _eval_loop(tmp_path, store=store)
     loop.run_once()
+    _join_eval(loop)
     store.texts["manifests/latest.json"] = '{"round_id": "222"}'
     loop.run_once()
+    _join_eval(loop)
     # Round 111's evals are moot: its pod dies and round 222 gets its own —
     # teardown runs before the eval check, so the two never coexist.
     assert prov.terminated == ["cascade-111-eval-0"]
@@ -786,11 +803,14 @@ def test_eval_ttl_backstop_fires_without_receipt_or_newer_manifest(tmp_path):
     store = FakeStore({"manifests/latest.json": '{"round_id": "111"}'})
     loop, prov = _eval_loop(tmp_path, store=store, clock=clock)
     loop.run_once()
+    _join_eval(loop)
     clock.t += 3 * 3600.0 - 1                                # one second shy of 1 epoch
     loop.run_once()
+    _join_eval(loop)
     assert "cascade-111-eval-0" in prov.live
     clock.t += 1.0
     loop.run_once()
+    _join_eval(loop)
     assert prov.live == {}                                   # TTL: silent validator ≠ bill
     with pytest.raises(RemoteDispatchError):
         load_hosts(tmp_path / "eval_hosts.toml")
@@ -983,3 +1003,26 @@ def test_heal_rebuilds_closed_handlers(tmp_path, monkeypatch):
     text = (tmp_path / "svc.log").read_text()
     assert "one" in text and "two" in text
     assert pmain  # import sanity
+
+
+def test_eval_rent_does_not_block_the_cycle(tmp_path, store_with_manifest=None):
+    """An eval pod's boot can take 15+ min — it must run OFF the loop thread
+    (a blocking boot swallowed a heat-trigger window on 2026-07-14)."""
+    import threading
+    import time as _time
+
+    gate = threading.Event()
+
+    class SlowBootProvider(FakeProvider):
+        def wait_ready(self, pod_id, *, timeout):
+            gate.wait(5)                          # simulates the 900s boot wait
+            return True
+
+    prov = SlowBootProvider("lium")
+    store = FakeStore({"manifests/latest.json": '{"round_id": "424242"}'})
+    loop, _ = _eval_loop(tmp_path, store=store, prov=prov)
+    t0 = _time.monotonic()
+    loop.run_once()                               # must return promptly
+    took = _time.monotonic() - t0
+    gate.set()
+    assert took < 2.0, f"cycle blocked {took:.1f}s on the eval boot"

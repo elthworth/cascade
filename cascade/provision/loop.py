@@ -221,6 +221,10 @@ class ProvisionerLoop:
     _last_block: int | None = field(default=None, init=False, repr=False)
     _block_changed_at: float = field(default=0.0, init=False, repr=False)
     _last_heartbeat_at: float = field(default=0.0, init=False, repr=False)
+    _eval_inflight: bool = field(default=False, init=False, repr=False)
+    _eval_thread: object = field(default=None, init=False, repr=False)
+    _state_lock: object = field(default_factory=__import__("threading").RLock,
+                                init=False, repr=False)
     _learned_round_id: str | None = field(default=None, init=False, repr=False)
     # The eval stage's rent-once latch (mirrors _provisioned_round for the
     # boundary stages): the manifest round an eval pod was last rented — or
@@ -676,6 +680,8 @@ class ProvisionerLoop:
         latest = self._latest_round_id()
         if latest is None or latest == self._last_evaled_round:
             return
+        if self._eval_inflight:
+            return                                # a rent worker is already busy
         if self._state is not None and instances_for_stage(self._state, "eval"):
             # Still holding an eval pod (e.g. dry-run teardown is a no-op):
             # the teardown sweep settles it first; re-check next cycle.
@@ -698,12 +704,33 @@ class ProvisionerLoop:
                      cand.gpus_per_pod, cand.sku, prov.name, price, latest)
             return
         self._persist_eval_latch(latest)
-        healthy = self._rent_stage(latest, "eval", prov, cand, pods)
-        if not healthy:
-            log.error("round %s eval: every rented pod failed its health gate; "
-                      "the validator runs this round's evals locally", latest)
-            return
-        self._publish_eval_hosts(healthy)
+        # Rent + boot + health can take 15+ minutes (provider readiness alone
+        # is a 900s wait) and MUST NOT block the loop: on 2026-07-14 an eval
+        # pod's boot wait swallowed the round-5 heat-trigger window whole.
+        # The slow leg runs in a daemon worker; the loop keeps cycling (the
+        # ledger write-ahead in _rent_stage keeps a crash reconcilable, and
+        # _eval_inflight stops a second manifest from double-renting).
+        import threading
+
+        def _rent_eval() -> None:
+            try:
+                healthy = self._rent_stage(latest, "eval", prov, cand, pods)
+                if not healthy:
+                    log.error("round %s eval: every rented pod failed its health "
+                              "gate; the validator runs this round's evals locally",
+                              latest)
+                    return
+                self._publish_eval_hosts(healthy)
+            except Exception as e:  # noqa: BLE001 — a failed eval never kills the loop
+                log.exception("round %s eval provisioning failed: %s", latest, e)
+            finally:
+                self._eval_inflight = False
+
+        self._eval_inflight = True
+        t = threading.Thread(target=_rent_eval, name=f"eval-rent-{latest}",
+                             daemon=True)
+        self._eval_thread = t                    # tests join() for determinism
+        t.start()
 
     def _persist_eval_latch(self, round_id: str) -> None:
         """Write the eval latch through to the ledger (never in dry-run —
@@ -950,7 +977,8 @@ class ProvisionerLoop:
         self._save()
 
     def _save(self) -> None:
-        save_state(self.state_path, self._state)
+        with self._state_lock:
+            save_state(self.state_path, self._state)
 
 
 def _sku_for(policy: ProvisionPolicy, stage: str) -> str:

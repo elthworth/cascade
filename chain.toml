@@ -182,7 +182,10 @@ dethrone_cp          = 1         # consecutive round wins to take the throne
 # registered, all weight burns to burn_uid. 0 = pure winner-take-all.
 reward_prior_kings   = 4
 burn_uid             = 0         # weight sink (owner burn slot)
-king_decay           = 1.0       # geometric decay across [king, prior kings];
+king_decay           = 0.5       # geometric decay across [king, prior kings]: king ∝ 1,
+                                  # prior ∝ 0.5, 0.25, … — the king is UNAMBIGUOUSLY the
+                                  # highest-incentive UID (king resolution depends on it).
+                                  # 1.0 = flat split (ambiguous; do not use in production).
                                  # 1.0 = flat split, <1 skews to the current king
 # Public-benchmark no-regression gate (cascade.eval.gift_gate). AND-ed with the
 # private-pool decision: can BLOCK a dethrone, never grant one. Start on

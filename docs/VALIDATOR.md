@@ -83,8 +83,20 @@ cascade-validator --offline --chain-toml chain.toml
 # prints netuid, king, dethrone_cp, manifest bucket, eval-pool source
 ```
 
-Then run it under a process manager (systemd/tmux); it resumes cleanly from
-its persisted state. A healthy round looks like:
+## Run — this is the validate command
+
+```bash
+# mainnet (chain.toml and --network finney are the defaults, shown for clarity):
+cascade-validator --chain-toml chain.toml --network finney \
+  --wallet-name my-validator --wallet-hotkey default
+
+# testnet:
+cascade-validator --chain-toml chain.testnet.toml --network test \
+  --wallet-name my-validator --wallet-hotkey default
+```
+
+Keep it under a process manager (systemd/tmux); it resumes cleanly from its
+persisted state. A healthy round looks like:
 
 ```
 new manifest round=… entries=2 (king:uid…,challenger:uid…); gating + scoring …

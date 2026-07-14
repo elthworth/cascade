@@ -77,6 +77,10 @@ Storage credentials come from the environment, never `chain.toml`:
 
 ```bash
 export HIPPIUS_S3_ACCESS_KEY=...    # read manifests, write your receipts
+# POOL_S3_ACCESS_KEY/SECRET override the eval-pool store's creds ONLY when you
+# also point [storage] pool_s3_endpoint somewhere else (e.g. R2). Setting them
+# with the default Hippius endpoint signs with the wrong keys and every pool
+# read fails SignatureDoesNotMatch.
 export HIPPIUS_S3_SECRET_KEY=...
 export POOL_S3_ACCESS_KEY=...       # read eval-pool snapshots (falls back to
 export POOL_S3_SECRET_KEY=...       #  HIPPIUS_S3_* when unset — see note below)
@@ -133,6 +137,24 @@ Run it under a process manager (systemd, tmux, supervisor) so it survives
 restarts; it resumes cleanly from its persisted champion state
 (`[validator] state_db_path`).
 
+### Optional: GPU eval offload (`--eval-hosts`)
+
+Pool scoring (CRPS/MASE) runs fine on CPU — a duel evaluates in well under a
+minute. The heavy work is the GIFT-Eval gate and the cascade bench; offload
+those to a GPU pod:
+
+```bash
+cascade-validator … --eval-hosts eval_hosts.toml
+```
+
+`eval_hosts.toml` is one `[[host]]` entry (same schema as the trainer's
+hosts file; first `final`/`any`-stage host wins). The file is **re-read at
+every eval**: it may appear, change, or empty out between rounds — an elastic
+per-round pod (the provisioner's `[provisioner.eval]` stage) works exactly
+this way. Missing or empty file ⇒ that eval runs locally. The wallet and all
+consensus decisions never leave your box; the pod needs the repo, the
+benchmarks sidecar venv, and the pinned bench data at the same paths.
+
 ## 5. Confirm it's working
 
 Three signals:
@@ -141,6 +163,9 @@ Three signals:
    `btcli wallet overview` / the metagraph shows your hotkey emitting weight.
 2. **Receipts published** — a signed `receipts/<your-hotkey>/round-<id>.json` per
    round in the manifest bucket (the dashboard reads these via the shared index).
+   With `[scoring] gift_gate_mode = "shadow"` you'll also see one
+   `gift-gate round=… computed=… passed=…` line per duel — log-only until the
+   owner flips `"enforce"`, at which point failing the gate vetoes a takeover.
 3. **Audit as health check** — verify your own latest round end to end:
 
    ```bash
@@ -155,11 +180,11 @@ Three signals:
 
 | symptom | cause |
 |---|---|
-| `rejecting manifest … contract_digest_mismatch` | your `chain.toml` contract differs from the trainer's — sync the file (this is the digest gate doing its job) |
+| `rejecting manifest … contract_digest_mismatch` | your `chain.toml` `[training]` differs from the trainer's — sync the file AND restart (the digest is computed at startup; a validator running across a `[training]` edit rejects every round until restarted) |
 | `rejecting manifest … signature_invalid` | wrong `[manifest] trainer_hotkey`, or the trainer published unsigned |
 | `no eval-pool snapshot published` | `pool_bucket` set but the owner hasn't published a snapshot, or wrong bucket/creds |
 | weights never set | no validator permit (insufficient stake), or the weight extrinsic is failing — check `btcli` and the log's `weight set failed` line |
-| CUDA not available | the evaluator needs a GPU; `pip install -e '.[train]'` on a CUDA box |
+| gift gate / bench slow or failing | pool scoring is CPU-fine; the gate + bench want a GPU — use `--eval-hosts` (above) or pin `[eval] gift_gate_data_dir` locally on a CUDA box |
 | audit WARNs on `block-hash-onchain` / `commit-cutoff` | you're on a lite node without the historical block/commitment; point `--network` at an archive node for zero WARNs |
 
 ## Rewards

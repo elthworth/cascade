@@ -31,6 +31,19 @@ fixtures if active pre-launch.
       wins; static pools are an overfitting target). Mainnet manifest/logs/
       receipts buckets + R2/HF mirror repos provisioned (the HF-outage
       fallbacks are only as good as the mirrors actually existing).
+- [ ] Immutable audit archive (mainnet-only, decided 2026-07-14). Hippius has
+      no WORM primitive (versioning/object-lock APIs refused when probed) and
+      its keys are ACCOUNT-scoped — so the archive is a bucket under a
+      SEPARATE Hippius account (e.g. `cascade-archive`) whose keys live ONLY
+      on the archiver box, never on trainer/validator hosts. A pull-based
+      sync (cron) copies new `manifests/round-*` and `receipts/**/round-*`
+      objects into it, skip-if-exists (append-only enforced client-side);
+      compromise of every production key still can't touch the archive.
+      Optional belt: R2 **Bucket Lock** retention rules (Cloudflare dashboard
+      → bucket → Settings; S3 keys can't set it) on the same prefixes of the
+      R2 backup bucket — true WORM even against the archive operator. Caveat
+      for any lock/archive: `receipts/<hotkey>/latest.json` is a mutable
+      pointer; archive only the immutable `round-*.json` objects.
 
 ## Decisions (defaults exist; choose deliberately)
 

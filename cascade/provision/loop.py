@@ -53,6 +53,7 @@ fakes; the loop itself is thin glue over ``policy``/``state``/``health``.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
@@ -191,6 +192,12 @@ class ProvisionerLoop:
     # must degrade to "static fleet", never to an empty file while a static
     # final exists.
     static_hosts_text: str = ""
+    # Called at the top of EVERY cycle (never raises consequences — errors are
+    # suppressed): the logging self-heal hook. bittensor's logging init strips
+    # handlers and raises the level (to CRITICAL) on NAMED loggers when a chain
+    # client connects — including reconnects — so a one-time logging setup
+    # cannot survive; only a per-cycle re-assert can.
+    on_cycle: Callable[[], None] | None = None
     ssh_probe: Callable[[str, int], bool] = field(default=lambda ip, port: True)
     # Rebuilds chain_client when the block number freezes: a bittensor
     # websocket can die QUIETLY and keep answering current_block() with a
@@ -249,6 +256,9 @@ class ProvisionerLoop:
         first kills the previous round's eval pod, then (same tick) the new
         round rents its own — the two never coexist.
         """
+        if self.on_cycle is not None:
+            with contextlib.suppress(Exception):
+                self.on_cycle()
         now = self.clock()
         if now - self._last_heartbeat_at >= self.heartbeat_every_s:
             # Cycle-START heartbeat: every phase below makes network calls

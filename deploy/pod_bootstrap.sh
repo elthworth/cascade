@@ -34,6 +34,6 @@ set -euo pipefail
 cd "$POD_WORKDIR"
 command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="\$HOME/.local/bin:\$PATH"
-uv sync --frozen --no-dev
+uv sync --frozen --all-extras --no-dev
 .venv/bin/python -c 'import sys, torch, cascade.trainer.worker; print("bootstrap ok:", sys.version.split()[0], torch.__version__)'
 REMOTE

@@ -379,3 +379,61 @@ def test_gpu_use_verdict_propagates_through_round_stream(tmp_path, small_cfg,
             ) as rs:
         for _ in rs.series():
             pass
+
+
+# ── GPU-profile resident-memory cap (systemd-run scope) ───────────────────────
+
+
+def test_wrap_memory_scope_composes_outermost():
+    """systemd-run → unshare → python: the whole netns+child tree must land in
+    one scope, and the cap is resident (2× the VA-calibrated knob, no swap)."""
+    from cascade.trainer.sandbox import wrap_memory_scope
+
+    inner = ["unshare", "--user", "--map-root-user", "--net", "python", "-m", "x"]
+    argv = wrap_memory_scope(inner, 4096, True)
+    assert argv[:4] == ["systemd-run", "--scope", "--quiet", "--collect"]
+    assert argv[4:8] == ["-p", "MemoryMax=8192M", "-p", "MemorySwapMax=0"]
+    assert argv[8:] == inner              # the wrapped command is untouched
+
+
+def test_wrap_memory_scope_unavailable_passes_through():
+    from cascade.trainer.sandbox import wrap_memory_scope
+
+    inner = ["python", "-m", "x"]
+    assert wrap_memory_scope(inner, 4096, False) == inner
+
+
+def test_only_gpu_profile_gets_the_memory_scope(tmp_path, small_cfg, monkeypatch):
+    import subprocess as sp
+
+    monkeypatch.setattr(sandbox_mod, "_memory_scope_available", lambda: True)
+    captured: dict[str, list[str]] = {}
+
+    def fake_popen(argv, **kw):
+        captured["argv"] = list(argv)
+        raise RuntimeError("stop before exec")
+
+    monkeypatch.setattr(sp, "Popen", fake_popen)
+    repo = _write_repo(tmp_path, OK_GEN)
+    for gpu in (True, False):
+        with pytest.raises(RuntimeError, match="stop before exec"), \
+                sandbox_mod.stream_series(
+                    repo, 0, small_cfg.generator, token_budget=256,
+                    blocked=small_cfg.static_guard.blocked, allow_netns=False,
+                    gpu=gpu,
+                ):
+            pass
+        assert (captured["argv"][0] == "systemd-run") is gpu
+
+
+def test_memory_scope_probe_degrades_with_one_warning(monkeypatch, caplog):
+    import shutil as shutil_mod
+
+    monkeypatch.setattr(sandbox_mod, "_MEMSCOPE_PROBE", None)
+    monkeypatch.setattr(shutil_mod, "which", lambda name: None)  # no systemd-run
+    with caplog.at_level("WARNING", logger="cascade.trainer.sandbox"):
+        assert sandbox_mod._memory_scope_available() is False
+        assert sandbox_mod._memory_scope_available() is False  # cached
+    warnings = [r for r in caplog.records if "systemd-run scopes unavailable" in r.message]
+    assert len(warnings) == 1             # named risk, warned exactly once
+    assert "OOM" in warnings[0].message

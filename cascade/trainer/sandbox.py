@@ -40,6 +40,7 @@ import json
 import logging
 import os
 import select
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -83,6 +84,7 @@ LANE_INDEX_ENV = "CASCADE_LANE_INDEX"
 LANE_COUNT_ENV = "CASCADE_LANE_COUNT"
 
 _NETNS_PROBE: bool | None = None
+_MEMSCOPE_PROBE: bool | None = None
 
 
 # ───────────────────────────────── parent ──────────────────────────────────
@@ -129,6 +131,61 @@ def _lane_cpu_slice() -> tuple[set[int], int] | None:
     start = (idx * k) % ncpu
     cores = set(allowed[start:start + k])
     return cores, len(cores)
+
+
+def _memory_scope_available() -> bool:
+    """Probe (once) whether systemd-run scopes can wrap a sandbox child.
+
+    The GPU profile skips RLIMIT_AS (torch's virtual-address over-reserve
+    would false-kill it), which leaves host RAM uncapped — a ballooning
+    generator gets the TRAINER OOM-killed, not itself. A ``systemd-run
+    --scope`` cgroup caps RESIDENT memory instead, so torch's VA reservation
+    is harmless while a real balloon dies in its own scope. Inside
+    docker-template pods there is no systemd, so the probe requires both the
+    binary and a successful trial scope; on failure this degrades to current
+    behavior with ONE warning naming the risk (the probe is cached, and only
+    the GPU-profile wrap path consults it).
+    """
+    global _MEMSCOPE_PROBE
+    if _MEMSCOPE_PROBE is None:
+        try:
+            _MEMSCOPE_PROBE = shutil.which("systemd-run") is not None and subprocess.run(
+                ["systemd-run", "--scope", "--quiet", "true"],
+                capture_output=True, timeout=10,
+            ).returncode == 0
+        except Exception:  # noqa: BLE001 - any failure means "no scopes here"
+            _MEMSCOPE_PROBE = False
+        if not _MEMSCOPE_PROBE:
+            log.warning(
+                "systemd-run scopes unavailable on this host: GPU-profile "
+                "generator host RAM stays UNCAPPED (RLIMIT_AS is skipped for "
+                "torch) — a ballooning generator can get the trainer "
+                "OOM-killed; run inside a memory-limited container for a hard "
+                "boundary"
+            )
+    return _MEMSCOPE_PROBE
+
+
+def wrap_memory_scope(argv: list[str], max_mb: int, available: bool) -> list[str]:
+    """Wrap ``argv`` in a resident-memory-capped systemd scope (pure).
+
+    ``MemoryMax`` is 2× the profile's ``max_memory_mb``: the cgroup counts
+    RESIDENT memory, unlike RLIMIT_AS's virtual-address accounting, so the
+    headroom keeps an honest torch generator (whose RSS can legitimately run
+    past the VA-calibrated knob) alive while still bounding a balloon.
+    ``MemorySwapMax=0`` makes the cap real — without it the kernel swaps the
+    balloon instead of killing it. ``--collect`` reaps the scope even when
+    the child is killed. Composes OUTERMOST around the unshare netns wrapper;
+    ``available=False`` (no systemd, see :func:`_memory_scope_available`)
+    passes ``argv`` through unchanged.
+    """
+    if not available:
+        return list(argv)
+    return [
+        "systemd-run", "--scope", "--quiet", "--collect",
+        "-p", f"MemoryMax={int(max_mb) * 2}M", "-p", "MemorySwapMax=0",
+        *argv,
+    ]
 
 
 def _nvidia_compute_pids() -> frozenset[int]:
@@ -552,6 +609,11 @@ def stream_series(
     ]
     if use_netns:
         argv = ["unshare", "--user", "--map-root-user", "--net", *argv]
+    if gpu:
+        # GPU profile: RLIMIT_AS is skipped below (torch VA over-reserve), so
+        # a cgroup scope is the only resident-memory bound — systemd-run
+        # OUTERMOST so the whole netns+python tree lands in one scope.
+        argv = wrap_memory_scope(argv, cfg.max_memory_mb, _memory_scope_available())
 
     # nproc = the lane's slice size when pinned (that IS the child's real core
     # ceiling — a host-wide count would over-budget every lane's cumulative

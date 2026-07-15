@@ -784,3 +784,42 @@ def test_health_image_digest_provider_attestation_fallback():
     gate_none = HealthGate(sku="A4000", image_digest=pin)
     ok, _ = gate_none._check_image_digest(run_ssh)
     assert not ok
+
+
+def test_make_health_check_attested_digest_on_frozen_gate(monkeypatch):
+    """Regression (live 2026-07-15): per-pod ``attested_digest`` must not be
+    assigned onto the stage-cached HealthGate — it is ``frozen=True`` and the
+    mutation raised ``cannot assign to field``, failing every pod's
+    boot/health before a single probe ran. The closure must take a per-pod
+    copy (``dataclasses.replace``) instead."""
+    import types
+
+    import cascade.trainer.remote as remote
+    from cascade.provision.health import HealthReport
+    from cascade.provision.loop import RenderSettings
+    from cascade.provision.main import make_health_check
+    from cascade.provision.policy import ProvisionPolicy, StagePolicy
+
+    def fake_run_ssh(argv, timeout):
+        return types.SimpleNamespace(returncode=1, stdout="", stderr="")
+
+    monkeypatch.setattr(remote, "run_ssh", fake_run_ssh)
+    policy = ProvisionPolicy(
+        heat=StagePolicy(sku="NVIDIA RTX A6000", gpus_per_pod=4, max_pods=1,
+                         providers=("shadeform",), max_price_hr=2.4),
+        final=StagePolicy(sku="NVIDIA L40S", gpus_per_pod=2, max_pods=1,
+                          providers=("shadeform",), max_price_hr=2.6),
+        trigger_margin_blocks=25, max_spend_per_round=25.0,
+    )
+    render = RenderSettings(image=IMG, ssh_pubkey="ssh-ed25519 AAAA cascade",
+                            key_path="/tmp/k")
+    check = make_health_check(policy, render, image_digest="sha256:" + "aa" * 32,
+                              min_disk_gb=1.0, hippius_probe=None)
+    addr = PodAddress(ip="192.0.2.1", ssh_port=2222)
+    # Two pods, different attestations, same cached stage gate: both calls
+    # must return a report (probes fail — irrelevant), never raise.
+    r1 = check(addr, "heat", "shadeform", sku="NVIDIA RTX A6000", gpus=4,
+               attested_digest="sha256:" + "aa" * 32)
+    r2 = check(addr, "heat", "shadeform", sku="NVIDIA RTX A6000", gpus=4,
+               attested_digest="sha256:" + "bb" * 32)
+    assert isinstance(r1, HealthReport) and isinstance(r2, HealthReport)

@@ -21,6 +21,7 @@ import shlex
 import subprocess
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from ..shared.config import load_chain_config
@@ -35,8 +36,6 @@ from .core import (
     wait_ssh_reachable,
 )
 from .health import HealthGate, HealthReport
-from dataclasses import replace
-
 from .loop import PodProfile, ProvisionerLoop, RenderSettings, parse_plan_output
 from .policy import ProvisionPolicy, SkuCandidate, StagePolicy
 

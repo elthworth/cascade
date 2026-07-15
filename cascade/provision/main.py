@@ -224,7 +224,17 @@ def make_bootstrap(script: Path, render: RenderSettings, *,
         argv = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
                 "-o", "BatchMode=yes", "-i", os.path.expanduser(render.key_path),
                 "-p", str(addr.ssh_port), f"{user}@{addr.ip}", "true"]
+        # Two distinct pod failures wear different stderr:
+        #  * "Permission denied (publickey)" = port UP, key still injecting —
+        #    wait the full auth_wait_s (marketplace key lag can be minutes).
+        #  * "Connection refused" = sshd/port DOWN. The pod already passed the
+        #    TCP reachability gate before bootstrap, so a port that is now
+        #    refused is a lemon that won't recover; fail fast (dead_port_cap)
+        #    so the replacement rents while the market still has offers
+        #    (a 15-min wait on a dead port dried up lium's 2x pool, 2026-07-15).
+        dead_port_cap = min(150.0, auth_wait_s)
         end = _t.monotonic() + auth_wait_s
+        t0 = _t.monotonic()
         last_err = ""
         while True:
             try:
@@ -234,9 +244,12 @@ def make_bootstrap(script: Path, render: RenderSettings, *,
                 last_err = (proc.stderr or "").strip()[-200:]
             except subprocess.TimeoutExpired:
                 last_err = "ssh probe timed out"
-            if _t.monotonic() >= end:
-                log.warning("auth probe's last error for %s@%s:%s: %s",
-                            user, addr.ip, addr.ssh_port, last_err or "(none)")
+            refused = "connection refused" in last_err.lower()
+            cap = dead_port_cap if refused else auth_wait_s
+            if _t.monotonic() - t0 >= cap:
+                log.warning("auth probe giving up on %s@%s:%s after %.0fs (%s): %s",
+                            user, addr.ip, addr.ssh_port, _t.monotonic() - t0,
+                            "dead port" if refused else "auth lag", last_err or "(none)")
                 return False
             _t.sleep(10)
 

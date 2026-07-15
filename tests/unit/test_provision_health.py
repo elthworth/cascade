@@ -328,3 +328,48 @@ def test_bootstrap_probes_with_the_provider_profile_user(monkeypatch, tmp_path):
     boot = pm.make_bootstrap(script, render, timeout_s=60, pod_user="root")
     assert boot(SimpleNamespace(ip="10.0.0.1", ssh_port=22), "heat", "shadeform") is True
     assert users == ["shadeform"]                       # NOT root
+
+
+def test_bootstrap_fast_fails_dead_port_but_waits_out_auth_lag(monkeypatch, tmp_path):
+    """A pod whose sshd port is REFUSED (lemon) must fail fast so the
+    replacement rents while the market is warm — waiting the full 900s on a
+    dead lium 2x pool dried it up (2026-07-15). But 'Permission denied'
+    (key-injection lag) must still wait the full window."""
+    from types import SimpleNamespace
+
+    from cascade.provision import main as pm
+
+    script = tmp_path / "boot.sh"
+    script.write_text("#!/bin/bash\ntrue\n")
+    render = pm.RenderSettings(image="", ssh_pubkey="pk", key_path="~/.ssh/k")
+    addr = SimpleNamespace(ip="10.0.0.1", ssh_port=22)
+
+    clock = {"t": 0.0}
+    import time as _t
+    monkeypatch.setattr(_t, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(_t, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+
+    def refused(argv, **kw):
+        if argv[0] == "ssh":
+            return SimpleNamespace(returncode=255, stdout="",
+                                   stderr="ssh: connect to host 10.0.0.1 port 22: Connection refused")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pm.subprocess, "run", refused)
+    boot = pm.make_bootstrap(script, render, timeout_s=60, pod_user="root", auth_wait_s=900.0)
+    assert boot(addr, "heat") is False
+    assert clock["t"] <= 200                              # dead-port fast-fail, NOT 900
+
+    # permission-denied waits the full window
+    clock["t"] = 0.0
+
+    def denied(argv, **kw):
+        if argv[0] == "ssh":
+            return SimpleNamespace(returncode=255, stdout="",
+                                   stderr="root@10.0.0.1: Permission denied (publickey).")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pm.subprocess, "run", denied)
+    boot = pm.make_bootstrap(script, render, timeout_s=60, pod_user="root", auth_wait_s=900.0)
+    assert boot(addr, "heat") is False
+    assert clock["t"] >= 900                              # full auth-lag wait

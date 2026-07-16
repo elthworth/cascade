@@ -233,7 +233,6 @@ def make_bootstrap(script: Path, render: RenderSettings, *,
         #    so the replacement rents while the market still has offers
         #    (a 15-min wait on a dead port dried up lium's 2x pool, 2026-07-15).
         dead_port_cap = min(150.0, auth_wait_s)
-        end = _t.monotonic() + auth_wait_s
         t0 = _t.monotonic()
         last_err = ""
         while True:

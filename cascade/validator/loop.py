@@ -21,6 +21,7 @@ behind the defaults.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from collections.abc import Callable
@@ -815,12 +816,29 @@ class ValidatorRunner:
 
         store = open_manifest_store(self.cfg.storage)
         poll = self.cfg.manifest.poll_seconds
+        # Dedup on CONTENT, not round_id: a re-published manifest for an
+        # already-seen round id (same-round-id rerun, e.g. after a contract
+        # fix) must be re-judged, not silently skipped (2026-07-15: the
+        # round_id-only latch ignored the rerun manifest with no log line).
         last_round: str | None = None
+        last_digest: str | None = None
         while True:
             try:
-                manifest = load_manifest(read_latest_manifest(store))
-                if manifest.round_id != last_round:
+                raw = read_latest_manifest(store)
+                digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+                if digest == last_digest:
+                    log.debug("manifest unchanged (round=%s sha=%s…); skipping",
+                              last_round, digest[:12])
+                else:
+                    manifest = load_manifest(raw)
                     base_seed = int(manifest.round_id)
+                    if manifest.round_id == last_round:
+                        log.warning(
+                            "manifest for already-handled round=%s RE-PUBLISHED "
+                            "with different content (sha %s… -> %s…); re-judging",
+                            manifest.round_id,
+                            (last_digest or "")[:12], digest[:12],
+                        )
                     log.info(
                         "new manifest round=%s entries=%d (%s); gating + scoring …",
                         manifest.round_id, len(manifest.entries),
@@ -837,7 +855,7 @@ class ValidatorRunner:
                         )
                     if reason is not None:
                         log.warning("rejecting manifest round=%s: %s", manifest.round_id, reason)
-                        last_round = manifest.round_id
+                        last_round, last_digest = manifest.round_id, digest
                         # A rejected round still gets a public receipt carrying
                         # the gate's reason — visible, not silently absent.
                         self._publish_round_receipt(
@@ -850,7 +868,7 @@ class ValidatorRunner:
                         # so incentive migrates and the trainer re-syncs — bounded by
                         # the safety valve (see _resync_step). A public receipt
                         # records why, not a silent skip.
-                        last_round = manifest.round_id
+                        last_round, last_digest = manifest.round_id, digest
                         self.state, reject_reason = self._resync_step(manifest)
                         self._persist_state()
                         reward_uids = self._reward_uids(manifest, None, client)
@@ -878,7 +896,7 @@ class ValidatorRunner:
                         # future desync starts the safety-valve count from zero.
                         if self.state.resync_holds:
                             self.state = replace(self.state, resync_holds=0)
-                        last_round = manifest.round_id
+                        last_round, last_digest = manifest.round_id, digest
                         self._persist_state()
                         reward_uids = self._reward_uids(manifest, outcome, client)
                         weights_vec = self._apply_weights(client, manifest.round_id, reward_uids)

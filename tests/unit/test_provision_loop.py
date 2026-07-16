@@ -401,6 +401,29 @@ def test_manifest_tears_down_everything(tmp_path):
     assert load_state(tmp_path / "state.json").instances == ()
 
 
+def test_stale_manifest_from_prior_run_does_not_tear_down(tmp_path):
+    # Same-round-id rerun: the PREVIOUS run's manifest is still published at
+    # round-<id>.json when the heat marker lands. That leftover must not read
+    # as round-over (2026-07-15: it killed both pods 21s after duel dispatch);
+    # only a NEW publish — different bytes at the same key — ends the round.
+    clock = Clock()
+    store = FakeStore({"manifests/round-54321.json":
+                       '{"round_id": "54321", "contract_digest": "old"}'})
+    loop, prov = _provisioned(tmp_path, clock=clock, store=store)
+    d = tmp_path / "work" / "54321"
+    d.mkdir(parents=True)
+    (d / "heat_complete.json").write_text("{}")
+    clock.t += 1800.0
+    loop.run_once()
+    assert "cascade-900-final-0" in prov.live                # stale: final survives
+    # The rerun finishes and republishes the SAME round id with new content.
+    store.texts["manifests/round-54321.json"] = (
+        '{"round_id": "54321", "contract_digest": "new"}')
+    clock.t += 1800.0
+    loop.run_once()
+    assert prov.live == {}
+
+
 def test_latest_pointer_change_also_ends_the_round(tmp_path):
     # No marker ever seen (e.g. trainer crashed mid-write) — the latest.json
     # baseline still detects "a manifest published after we rented".

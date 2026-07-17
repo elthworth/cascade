@@ -311,6 +311,26 @@ def test_publish_and_read_receipt_keys():
     assert hippius.read_receipt(store, "42") == '{"round_id":"42"}'
 
 
+def test_publish_receipt_rejected_never_clobbers_scored_round_key():
+    """A same-round re-judgement that ends in rejection must not erase the
+    signed scored receipt at the round key (2026-07-15: contract-switch
+    rejections erased the receipt that crowned the first king). The rejection
+    stays visible on the latest pointers; only another SCORED verdict may
+    replace a scored round record."""
+    store = _FakeS3Store()
+    scored = '{"round_id":"42","status":"scored","king_hotkey":"5King"}'
+    key = hippius.publish_receipt(store, scored, "42", validator_hotkey="5Val")
+
+    rejected = '{"round_id":"42","status":"rejected","reject_reason":"contract_digest_mismatch"}'
+    assert hippius.publish_receipt(store, rejected, "42", validator_hotkey="5Val") == key
+    assert store.objects[key] == scored                          # round key preserved
+    assert hippius.read_latest_receipt(store, "5Val") == rejected  # rejection visible
+
+    scored2 = '{"round_id":"42","status":"scored","king_hotkey":"5NewKing"}'
+    hippius.publish_receipt(store, scored2, "42", validator_hotkey="5Val")
+    assert store.objects[key] == scored2                         # scored-over-scored wins
+
+
 def test_publish_receipt_namespaced_per_validator():
     """Two validators publish the same round: each keeps its own signed copy
     (single-writer prefixes), only the shared convenience pointer races."""

@@ -85,12 +85,16 @@ expected_gpu = "NVIDIA L40S"     # exact nvidia-smi device string; king+challeng
 # Pin the training-runtime image (digest-pinned worker-image ref) and inject the
 # same digest as CASCADE_TRAIN_IMAGE_DIGEST into each pod env; final runs refuse
 # a mismatched runtime. Folded into contract_digest. Empty = unpinned.
-train_image_digest = "sha256:f08d8c52a19616bcc218109b0e50a4c0191781de6d91b90ec082e2a47e1987a3"
-# ^ ghcr.io/tensorlink-ai/cascade-worker@worker-v0.3.0 (2026-07-15, built from
-# ed2f4a1 — bakes the corrected 20x token budget). NOTE the baked chain.toml
-# inside the image carries an EMPTY pin (an image cannot contain its own
-# digest); enforcement is launch-env injection + the provisioner health gate,
-# and contract_digest is computed orchestrator-side only.
+train_image_digest = "sha256:2126219a8909797e313b1688ff7b27a666eb7376652cd0d322e229e91cfe01b4"
+# ^ ghcr.io/tensorlink-ai/cascade-worker@worker-v0.3.1 (2026-07-16, built from
+# 56d40c7 — 20x budget + pinned [dependencies] generator allowlist baked).
+# NOTE the baked chain.toml inside the image carries an EMPTY pin (an image
+# cannot contain its own digest); enforcement is launch-env injection + the
+# provisioner health gate, and contract_digest is computed orchestrator-side
+# only.
+# Prior pin: sha256:f08d8c52a19616… = ghcr.io/tensorlink-ai/cascade-worker@worker-v0.3.0
+# (2026-07-15, built from ed2f4a1 — 20x budget but MISSING the [dependencies]
+# generator allowlist; generators importing pandas failed heats — do not reuse).
 # Prior pin: sha256:46bc78fa0ddd… = ghcr.io/tensorlink-ai/cascade-worker@worker-v0.2.0
 # (built from main incl. PRs #76–#98; bakes the OLD 185k budget — do not reuse).
 # Re-pin protocol: the digest folds into contract_digest ⇒ trainer AND
@@ -302,6 +306,11 @@ state_db_path              = "validator_state.db"
 # checkpoint log, and the promoted warm-start pointer for the trainer.
 cascade_state_db_path      = "cascade_state.json"
 warm_start_init_path       = "warm_start_init.json"
+# First boot with no local state: inherit the current champion from the signed
+# public receipt trail (verified against the pinned [manifest] hotkey) instead
+# of judging the next manifest blind. Makes validator join-order irrelevant to
+# who holds the throne. Existing state always wins; flip false to opt out.
+bootstrap_from_receipts    = true
 
 [wandb]
 # Optional live training dashboards (Weights & Biases). Observability only —

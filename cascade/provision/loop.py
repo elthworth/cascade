@@ -54,9 +54,11 @@ fakes; the loop itself is thin glue over ``policy``/``state``/``health``.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import re
+import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -111,6 +113,20 @@ _PROVISIONER_POD_RE = re.compile(r"^cascade-\d+-(heat|final|eval)(-|$)")
 def is_provisioner_pod_name(name: str) -> bool:
     """True only for pod names this service itself creates (see _PROVISIONER_POD_RE)."""
     return _PROVISIONER_POD_RE.match(str(name)) is not None
+
+
+def _scrub_known_host(ip: str, port: int = 22) -> None:
+    """Drop any stored host key for a freshly-rented pod's address.
+
+    Marketplace providers recycle IPs and the worker image generates fresh host
+    keys per boot (``ssh-keygen -A`` in the entrypoint), so a stale entry makes
+    every ``accept-new`` connection hard-fail with "Host key verification
+    failed" (2026-07-15: killed a replacement pod that re-drew its dud's IP).
+    Scrubbing at rent time keeps trust-on-first-use for the dispatch path."""
+    targets = [ip] if port == 22 else [ip, f"[{ip}]:{port}"]
+    for t in targets:
+        with contextlib.suppress(Exception):
+            subprocess.run(["ssh-keygen", "-R", t], capture_output=True, timeout=10)
 
 
 @dataclass(frozen=True)
@@ -224,6 +240,12 @@ class ProvisionerLoop:
     _state_lock: object = field(default_factory=__import__("threading").RLock,
                                 init=False, repr=False)
     _learned_round_id: str | None = field(default=None, init=False, repr=False)
+    # Stale-manifest guard for same-round-id reruns: sha256 of any manifest
+    # ALREADY published at round-<id>.json on the first poll after the heat
+    # marker taught us the id (None = key was absent then). Only a CHANGED
+    # manifest reads as round-over.
+    _round_manifest_baseline: str | None = field(default=None, init=False, repr=False)
+    _round_baseline_for: str | None = field(default=None, init=False, repr=False)
     # The eval stage's rent-once latch (mirrors _provisioned_round for the
     # boundary stages): the manifest round an eval pod was last rented — or
     # deliberately skipped — for. Restored from the ledger so restarts never
@@ -559,6 +581,7 @@ class ProvisionerLoop:
             if addr is None:
                 log.warning("pod %s exposed no IP", pid)
                 return None
+            _scrub_known_host(addr.ip, addr.ssh_port)
             if not self.ssh_probe(addr.ip, addr.ssh_port):
                 log.warning("pod %s SSH %s:%d unreachable", pid, addr.ip, addr.ssh_port)
                 return None
@@ -571,10 +594,16 @@ class ProvisionerLoop:
                     log.warning("pod %s bootstrap failed", pid)
                     return None
             if self.health_check is not None:
+                # Provider-echoed image digest (empty when unsupported/bare):
+                # the gate's fallback attestation for sshd-as-PID-1 images.
+                attest_fn = getattr(prov, "launched_image_digest", None)
+                attested = (attest_fn(pid) or "") if attest_fn is not None else ""
                 report = (self.health_check(addr, stage, prov.name,
-                                            sku=cand.sku, gpus=cand.gpus_per_pod)
+                                            sku=cand.sku, gpus=cand.gpus_per_pod,
+                                            attested_digest=attested)
                           if cand is not None else
-                          self.health_check(addr, stage, prov.name))
+                          self.health_check(addr, stage, prov.name,
+                                            attested_digest=attested))
                 if not report.ok:
                     log.warning("pod %s failed health gate: %s", pid, report.summary())
                     return None
@@ -903,15 +932,40 @@ class ProvisionerLoop:
         (works even if we never saw a marker; survives nothing — a restart
         loses the baseline, which is fine because (a) re-learns from the
         still-on-disk marker and the TTL backstops everything).
+
+        Detector (a) is CONTENT-baselined, not existence-based: on a
+        same-round-id rerun the previous run's manifest is still sitting at
+        ``round-<id>.json``, and a legitimate publish can only happen after
+        the final duel — hours past the heat marker that teaches us the id.
+        So a manifest already present on the first poll after learning the id
+        is a stale leftover: record its hash and fire only when the bytes
+        change (2026-07-15: the stale morning manifest satisfied the old
+        existence check 21s after duel dispatch and killed both pods). The
+        one blind spot — restarting after a real publish baselines the real
+        manifest — is backstopped by the TTL like every other lost baseline.
         """
         if self.manifest_store is None:
             return False
         if self._learned_round_id:
             try:
-                self.manifest_store.get_text(manifest_round_key(self._learned_round_id))
-                return True
+                text: str | None = self.manifest_store.get_text(
+                    manifest_round_key(self._learned_round_id))
             except Exception:  # noqa: BLE001 — not there yet (or store down: TTL backstops)
-                pass
+                text = None
+            if self._round_baseline_for != self._learned_round_id:
+                self._round_baseline_for = self._learned_round_id
+                self._round_manifest_baseline = (
+                    None if text is None
+                    else hashlib.sha256(text.encode("utf-8")).hexdigest())
+                if text is not None:
+                    log.warning("stale manifest already at %s when the marker "
+                                "taught us the round id — baselining it, will "
+                                "only tear down on a NEW publish",
+                                manifest_round_key(self._learned_round_id))
+            if text is not None:
+                digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                if digest != self._round_manifest_baseline:
+                    return True
         current = self._latest_round_id()
         return (self._manifest_baseline is not None and current is not None
                 and current != self._manifest_baseline)

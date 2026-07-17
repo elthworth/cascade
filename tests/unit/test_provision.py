@@ -664,3 +664,162 @@ def test_lium_launch_omits_image_in_bootstrap_mode(monkeypatch):
     prov.launch(LaunchSpec(sku="RTX4090", count=1, image="img@sha256:aa", ssh_pubkey="k",
                            gpus_per_pod=4, name_prefix="cascade-900-heat"))
     assert "--image" in calls[1]
+
+
+# ── shadeform docker-mode readiness (container_status gating) ────────────────
+
+
+def _shadeform_with_infos(infos):
+    """ShadeformProvider whose /info responses replay from a list (last repeats)."""
+    from cascade.provision.core import ShadeformProvider
+
+    clock = {"t": 0.0}
+    prov = ShadeformProvider(
+        _sleep=lambda s: clock.__setitem__("t", clock["t"] + s),
+        _now=lambda: clock["t"],
+    )
+    seq = list(infos)
+    prov._get = lambda path, params=None: (seq.pop(0) if len(seq) > 1 else seq[0])
+    return prov, clock
+
+
+def test_shadeform_wait_ready_waits_out_container_download():
+    """Live 2026-07-15: the INSTANCE goes "active" while the multi-GB worker
+    image is still pulling ("container_status": "downloading"); probing then
+    reaches the VM's own sshd → "Permission denied" → every image-boot pod was
+    killed as a dud. wait_ready must hold until the container itself runs."""
+    prov, clock = _shadeform_with_infos([
+        {"status": "pending"},
+        {"status": "active", "container_status": "downloading"},
+        {"status": "active", "container_status": "downloading"},
+        {"status": "active", "container_status": "running"},
+    ])
+    assert prov.wait_ready("i-1", timeout=900.0) is True
+    assert clock["t"] >= 3 * prov.poll_interval          # actually waited
+
+
+def test_shadeform_wait_ready_vm_mode_unchanged():
+    """No container_status field (VM-mode rental): active alone is ready."""
+    prov, _ = _shadeform_with_infos([{"status": "active"}])
+    assert prov.wait_ready("i-1", timeout=900.0) is True
+
+
+def test_shadeform_wait_ready_raises_on_container_failure():
+    import pytest as _pytest
+
+    from cascade.provision.core import ProvisionError
+
+    prov, _ = _shadeform_with_infos([
+        {"status": "active", "container_status": "downloading"},
+        {"status": "active", "container_status": "failed"},
+    ])
+    with _pytest.raises(ProvisionError, match="container entered 'failed'"):
+        prov.wait_ready("i-1", timeout=900.0)
+
+
+def test_shadeform_pod_address_prefers_echoed_port_mapping():
+    """Docker-mode: the container's sshd lives at the mapped host_port from the
+    /info echo (host 22 belongs to the VM's own sshd — live 2026-07-15)."""
+    from cascade.provision.core import shadeform_pod_address
+
+    info = {"ip": "1.2.3.4", "launch_configuration": {"docker_configuration": {
+        "port_mappings": [{"host_port": 2222, "container_port": 22}]}}}
+    addr = shadeform_pod_address(info)
+    assert (addr.ip, addr.ssh_port) == ("1.2.3.4", 2222)
+    # VM-mode (no docker config): caller's port wins, default 22.
+    assert shadeform_pod_address({"ip": "1.2.3.4"}).ssh_port == 22
+
+
+def test_health_image_digest_falls_back_to_pid1_environ():
+    """sshd sessions don't inherit the container's launch env — printenv comes
+    back empty even though PID 1 carries the digest; /proc/1/environ is the
+    authoritative fallback (live 2026-07-15)."""
+    import types
+
+    from cascade.provision.health import HealthGate
+
+    pin = "sha256:" + "ab" * 32
+    calls = []
+
+    def run_ssh(argv):
+        calls.append(argv)
+        if argv[:1] == ["printenv"]:
+            return types.SimpleNamespace(returncode=1, stdout="", stderr="")
+        # cat /proc/1/environ: NUL-separated launch env, parsed locally —
+        # run_ssh flattens argv through a remote shell, so no pipelines here.
+        environ = f"PATH=/usr/bin\0CASCADE_TRAIN_IMAGE_DIGEST={pin}\0HOME=/root\0"
+        return types.SimpleNamespace(returncode=0, stdout=environ, stderr="")
+
+    gate = HealthGate(sku="A6000", image_digest=pin)
+    ok, why = gate._check_image_digest(run_ssh)
+    assert ok, why
+    assert ["cat", "/proc/1/environ"] in calls
+
+
+def test_health_image_digest_provider_attestation_fallback():
+    """sshd-as-PID-1 images destroy /proc/1/environ (setproctitle), so when
+    neither printenv nor environ yields the digest, the provider's own launch
+    record (attested_digest) decides — matching pin passes, anything else
+    keeps the hard failure (live 2026-07-15)."""
+    import types
+
+    from cascade.provision.health import HealthGate
+
+    pin = "sha256:" + "cd" * 32
+
+    def run_ssh(argv):
+        if argv[:1] == ["printenv"]:
+            return types.SimpleNamespace(returncode=1, stdout="", stderr="")
+        # environ clobbered by setproctitle: garbage, no digest entry
+        return types.SimpleNamespace(returncode=0, stdout="-D -e [listener]\0\0\0", stderr="")
+
+    gate = HealthGate(sku="A4000", image_digest=pin, attested_digest=pin)
+    ok, why = gate._check_image_digest(run_ssh)
+    assert ok and "attested" in why
+
+    gate_bad = HealthGate(sku="A4000", image_digest=pin, attested_digest="sha256:" + "ef" * 32)
+    ok, _ = gate_bad._check_image_digest(run_ssh)
+    assert not ok
+
+    gate_none = HealthGate(sku="A4000", image_digest=pin)
+    ok, _ = gate_none._check_image_digest(run_ssh)
+    assert not ok
+
+
+def test_make_health_check_attested_digest_on_frozen_gate(monkeypatch):
+    """Regression (live 2026-07-15): per-pod ``attested_digest`` must not be
+    assigned onto the stage-cached HealthGate — it is ``frozen=True`` and the
+    mutation raised ``cannot assign to field``, failing every pod's
+    boot/health before a single probe ran. The closure must take a per-pod
+    copy (``dataclasses.replace``) instead."""
+    import types
+
+    import cascade.trainer.remote as remote
+    from cascade.provision.health import HealthReport
+    from cascade.provision.loop import RenderSettings
+    from cascade.provision.main import make_health_check
+    from cascade.provision.policy import ProvisionPolicy, StagePolicy
+
+    def fake_run_ssh(argv, timeout):
+        return types.SimpleNamespace(returncode=1, stdout="", stderr="")
+
+    monkeypatch.setattr(remote, "run_ssh", fake_run_ssh)
+    policy = ProvisionPolicy(
+        heat=StagePolicy(sku="NVIDIA RTX A6000", gpus_per_pod=4, max_pods=1,
+                         providers=("shadeform",), max_price_hr=2.4),
+        final=StagePolicy(sku="NVIDIA L40S", gpus_per_pod=2, max_pods=1,
+                          providers=("shadeform",), max_price_hr=2.6),
+        trigger_margin_blocks=25, max_spend_per_round=25.0,
+    )
+    render = RenderSettings(image=IMG, ssh_pubkey="ssh-ed25519 AAAA cascade",
+                            key_path="/tmp/k")
+    check = make_health_check(policy, render, image_digest="sha256:" + "aa" * 32,
+                              min_disk_gb=1.0, hippius_probe=None)
+    addr = PodAddress(ip="192.0.2.1", ssh_port=2222)
+    # Two pods, different attestations, same cached stage gate: both calls
+    # must return a report (probes fail — irrelevant), never raise.
+    r1 = check(addr, "heat", "shadeform", sku="NVIDIA RTX A6000", gpus=4,
+               attested_digest="sha256:" + "aa" * 32)
+    r2 = check(addr, "heat", "shadeform", sku="NVIDIA RTX A6000", gpus=4,
+               attested_digest="sha256:" + "bb" * 32)
+    assert isinstance(r1, HealthReport) and isinstance(r2, HealthReport)

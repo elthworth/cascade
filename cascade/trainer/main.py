@@ -288,7 +288,11 @@ def _plan_payload(cfg, client, work_root: Path | str) -> dict:
     next_boundary = (block // epoch_blocks + 1) * epoch_blocks
     resolved = resolve_commitments(client.poll_commitments(),
                                    floor_block=cfg.round.commit_floor_block)
-    plan = plan_round(resolved, client.highest_incentive_hotkey())
+    # Same king resolution as the live round (loop.py run_forever): without
+    # genesis_ref the vacant-throne fallback seats the lowest UID as interim
+    # king, which both misreports "king" and undercounts challengers by one.
+    plan = plan_round(resolved, client.highest_incentive_hotkey(),
+                      genesis_ref=cfg.round.genesis_generator_ref or None)
     probe = TrainerRunner(cfg=cfg, base_trainer=None, work_root=Path(work_root))
     eligible = probe._filter_burned_challengers(plan.challengers)
     return {

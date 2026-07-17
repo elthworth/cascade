@@ -167,6 +167,30 @@ def test_update_receipt_index_keyed_per_validator():
     assert len(doc["rounds"]) == 2
 
 
+def test_update_receipt_index_rejected_never_erases_scored_entry():
+    """A rejected re-judgement of an already-scored round keeps the scored
+    entry in the index (2026-07-15: rejected overwrites blanked the
+    dashboard's king). A later scored verdict still replaces it."""
+    store = _FakeS3Store()
+    scored, _, _ = make_scored_receipt()
+    hippius.update_receipt_index(store, summarize_receipt(scored))
+
+    rejected = make_rejected_receipt(reason="king_resyncing")
+    assert rejected.round_id == scored.round_id                  # same-round rerun
+    entry = hippius.update_receipt_index(store, summarize_receipt(rejected))
+
+    doc = json.loads(store.objects[hippius.RECEIPT_INDEX_KEY])
+    assert len(doc["rounds"]) == 1
+    assert doc["rounds"][0]["status"] == "scored"
+    assert doc["rounds"][0]["king_hotkey"] == "king_hk"          # crown survives
+    assert entry["status"] == "scored"                           # preserved entry returned
+
+    # scored-over-scored still replaces: latest scored verdict wins
+    hippius.update_receipt_index(store, summarize_receipt(scored))
+    doc = json.loads(store.objects[hippius.RECEIPT_INDEX_KEY])
+    assert len(doc["rounds"]) == 1 and doc["rounds"][0]["status"] == "scored"
+
+
 def test_read_receipt_index_empty_when_absent_or_malformed():
     store = _FakeS3Store()
     assert hippius.read_receipt_index(store) == {"schema": hippius.RECEIPT_INDEX_SCHEMA, "rounds": []}

@@ -897,10 +897,23 @@ def publish_receipt(
     retried private (the audit's anonymous fetch then falls back to
     credentials, as documented in docs/AUDIT.md).
     """
-    keys = [receipt_round_key(round_id, validator_hotkey),
-            receipt_latest_key(validator_hotkey)]
+    round_key = receipt_round_key(round_id, validator_hotkey)
+    keys = [round_key, receipt_latest_key(validator_hotkey)]
     if validator_hotkey:
         keys.append(RECEIPT_LATEST_KEY)
+    # A SCORED verdict is only ever superseded by another scored verdict: on a
+    # same-round-id re-judgement that ends in a gate rejection, the rejected
+    # receipt must not clobber the signed scored record at the round key
+    # (2026-07-15: two contract-switch rejections erased the receipt that
+    # crowned the first king). The rejection stays visible via the latest
+    # pointers; the round key keeps the authoritative scored copy.
+    if _receipt_status(receipt_text) == "rejected" and _scored_receipt_at(store, round_key):
+        import logging
+
+        logging.getLogger("cascade.storage").warning(
+            "NOT overwriting scored receipt at %s with a rejected one "
+            "(same-round re-judgement); latest pointers still updated", round_key)
+        keys = keys[1:]
     try:
         for key in keys:
             store.put_text(key, receipt_text, content_type="application/json",
@@ -909,7 +922,25 @@ def publish_receipt(
         # ACL unsupported on this backend: publish private rather than not at all.
         for key in keys:
             store.put_text(key, receipt_text, content_type="application/json")
-    return keys[0]
+    return round_key
+
+
+def _receipt_status(receipt_text: str) -> str:
+    try:
+        doc = json.loads(receipt_text)
+        return str(doc.get("status", "")) if isinstance(doc, dict) else ""
+    except (ValueError, TypeError):
+        return ""
+
+
+def _scored_receipt_at(store: S3Store, key: str) -> bool:
+    """Whether a receipt with ``status == "scored"`` already sits at ``key``.
+    Unreadable/absent/malformed all read as False — precedence is best-effort,
+    never a reason to fail a publish."""
+    try:
+        return _receipt_status(store.get_text(key)) == "scored"
+    except Exception:  # noqa: BLE001 — absent key or store hiccup
+        return False
 
 
 def read_receipt(store: S3Store, round_id: str, validator_hotkey: str = "") -> str:
@@ -987,9 +1018,19 @@ def update_receipt_index(
 
     doc = read_receipt_index(store)
     rid = str(entry.get("round_id"))
+    prior = [r for r in doc.get("rounds", [])
+             if (str(r.get("round_id")), str(r.get("validator_hotkey") or ""))
+             == (rid, hotkey)]
     rounds = [r for r in doc.get("rounds", [])
               if (str(r.get("round_id")), str(r.get("validator_hotkey") or ""))
               != (rid, hotkey)]
+    # Scored precedence (mirrors publish_receipt): a rejected re-judgement of
+    # the same round must not erase this validator's scored entry — that is
+    # what blanked the dashboard's king on 2026-07-15. The rejected receipt
+    # remains reachable via receipts/<hotkey>/latest.json.
+    if (str(entry.get("status")) == "rejected"
+            and any(str(r.get("status")) == "scored" for r in prior)):
+        entry = next(r for r in prior if str(r.get("status")) == "scored")
     rounds.append(entry)
     rounds.sort(key=lambda r: (int(r.get("epoch_start_block", 0)),
                                str(r.get("round_id", "")),

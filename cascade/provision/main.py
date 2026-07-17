@@ -170,7 +170,7 @@ def make_health_check(policy: ProvisionPolicy, render: RenderSettings, *,
     gates: dict = {}
 
     def check(addr, stage: str, provider: str = "", *,
-              sku: str = "", gpus: int = 0) -> HealthReport:
+              sku: str = "", gpus: int = 0, attested_digest: str = "") -> HealthReport:
         prof = render.profile_for(provider)
         sp = {"heat": policy.heat, "final": policy.final, "eval": policy.eval}.get(stage)
         # The gate asserts what was ACTUALLY rented — with SKU fallback the
@@ -193,7 +193,11 @@ def make_health_check(policy: ProvisionPolicy, render: RenderSettings, *,
         def run(remote_argv: Sequence[str]):
             return run_ssh(build_ssh_argv(host, shlex.join(list(remote_argv))), timeout=120)
 
-        return gates[key].check(run)
+        # Per-pod provider attestation on the (stage-cached) gate — see
+        # HealthGate.attested_digest for why pod env alone can't be trusted
+        # to exist on sshd-as-PID-1 images.
+        gate = replace(gates[key], attested_digest=attested_digest)
+        return gate.check(run)
 
     return check
 

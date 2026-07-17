@@ -442,18 +442,30 @@ def shadeform_create_body(
 def shadeform_pod_address(info_json: dict, *, ssh_port: int = DEFAULT_SSH_PORT) -> PodAddress | None:
     """Extract ``(ip, port)`` from a Shadeform ``/instances/{id}/info`` response.
 
-    The container's sshd is reached at the mapped ``host_port`` (we expose 22),
-    so we pair the reported ``ip`` with the port we mapped rather than the host
-    box's own ``ssh_port``.
+    Docker-mode: the container's sshd lives at the ``host_port`` of the
+    port mapping echoed back in ``launch_configuration`` — NOT at the VM's
+    port 22 (containers default to ``--network=host``, and the VM's own sshd
+    owns 22; live 2026-07-15). Prefer the echoed mapping; fall back to the
+    caller's ``ssh_port`` (VM-mode rentals carry no docker configuration).
     """
     ip = info_json.get("ip")
     if not ip:
         return None
+    docker = (info_json.get("launch_configuration") or {}).get("docker_configuration") or {}
+    for pm in docker.get("port_mappings") or []:
+        if int(pm.get("container_port", 0) or 0) == DEFAULT_SSH_PORT:
+            return PodAddress(ip=str(ip), ssh_port=int(pm["host_port"]))
     return PodAddress(ip=str(ip), ssh_port=ssh_port)
 
 
 SHADEFORM_READY = "active"                  # the "running/live" status (no "running" state)
 SHADEFORM_TERMINAL_BAD = {"error", "deleting", "deleted"}
+# Docker-mode: the INSTANCE goes "active" while the container is still pulling
+# ("downloading" → "running"). Probing at "active" reaches the VM's own sshd —
+# which knows nothing of SSH_PUBKEY — and reads as a dead pod (2026-07-15:
+# every image-boot rental failed its gate exactly this way).
+SHADEFORM_CONTAINER_READY = "running"
+SHADEFORM_CONTAINER_BAD = {"failed", "error", "stopped"}
 
 
 # ── side-effecting helpers (adapter surface, not unit-tested) ─────────────────
@@ -733,18 +745,43 @@ class ShadeformProvider:
 
     def wait_ready(self, pod_id: str, *, timeout: float) -> bool:
         deadline = self._now() + timeout
+        last_container = None
         while self._now() < deadline:
             info = self._get(f"/instances/{pod_id}/info")
             status = str(info.get("status", "")).lower()
-            if status == SHADEFORM_READY:
-                return True
             if status in SHADEFORM_TERMINAL_BAD:
                 raise ProvisionError(f"shadeform instance {pod_id} entered {status!r}")
+            if status == SHADEFORM_READY:
+                container = str(info.get("container_status") or "").lower()
+                if container in SHADEFORM_CONTAINER_BAD:
+                    raise ProvisionError(
+                        f"shadeform instance {pod_id} container entered {container!r}"
+                    )
+                # No container_status field ⇒ VM-mode rental: active is ready.
+                if not container or container == SHADEFORM_CONTAINER_READY:
+                    return True
+                if container != last_container:
+                    log.info("shadeform %s active, container %s — waiting for %s",
+                             pod_id, container, SHADEFORM_CONTAINER_READY)
+                    last_container = container
             self._sleep(self.poll_interval)
         return False
 
     def get_ip(self, pod_id: str) -> PodAddress | None:
         return shadeform_pod_address(self._get(f"/instances/{pod_id}/info"))
+
+    def launched_image_digest(self, pod_id: str) -> str:
+        """The image digest Shadeform's own record says this instance runs.
+
+        Fallback attestation for the health gate: sshd-as-PID-1 worker images
+        destroy their /proc/1/environ (setproctitle), so the launch-env digest
+        can't be read off the pod itself (live 2026-07-15)."""
+        try:
+            info = self._get(f"/instances/{pod_id}/info")
+        except Exception:  # noqa: BLE001 — attestation is best-effort, gate decides
+            return ""
+        docker = (info.get("launch_configuration") or {}).get("docker_configuration") or {}
+        return image_digest_of(str(docker.get("image") or ""))
 
     def terminate(self, pod_id: str) -> None:
         try:

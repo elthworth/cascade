@@ -229,6 +229,30 @@ def _resolve_hub_token(action: str) -> str:
     )
 
 
+def _resolve_hub_token_for_pull(action: str) -> str | bool:
+    """Like :func:`_resolve_hub_token`, but pulls fall back to ANONYMOUS.
+
+    The Hub token service grants anonymous pull tokens for public projects,
+    and the cascade checkpoint/generator repos are public by design — they
+    are the artefacts validators and auditors verify. A validator therefore
+    needs no Hub account to eval a round (external validators hit exactly
+    this on 2026-07-18: checkpoint fetch raised HubAuthError although the
+    registry would have served the pull anonymously). Credentials, when
+    present, are still used. Uploads keep the strict resolver — pushing
+    always needs an identity. ``False`` is the library's explicit
+    "anonymous; do not auto-discover" sentinel.
+    """
+    try:
+        return _resolve_hub_token(action)
+    except HubAuthError:
+        import logging
+
+        logging.getLogger("cascade.storage").info(
+            "%s: no Hub credentials in env; using anonymous pull "
+            "(public repos only)", action)
+        return False
+
+
 @dataclass(frozen=True)
 class HubConfig:
     """How to reach the Hippius Hub OCI registry (credentials come from env).
@@ -472,14 +496,26 @@ def fetch_from_hub(ref: HubRef | str, dest_dir: Path | str, hub: HubConfig | Non
             raise StorageError(
                 "hippius-hub not installed; install the [hippius] extra to use the registry"
             ) from e
-        hub_token = _resolve_hub_token(f"Downloading {ref.immutable_ref}")
-        path = _retry_hub_op(
-            lambda: snapshot_download(
-                repo_id=ref.repo, revision=ref.digest, local_dir=str(dest),
-                allow_patterns=ALLOW_PATTERNS, token=hub_token,
-            ),
-            f"fetch of {ref.immutable_ref}",
-        )
+        hub_token = _resolve_hub_token_for_pull(f"Downloading {ref.immutable_ref}")
+        try:
+            path = _retry_hub_op(
+                lambda: snapshot_download(
+                    repo_id=ref.repo, revision=ref.digest, local_dir=str(dest),
+                    allow_patterns=ALLOW_PATTERNS, token=hub_token,
+                ),
+                f"fetch of {ref.immutable_ref}",
+            )
+        except Exception as e:
+            denied = any(s in str(e).lower()
+                         for s in ("401", "403", "unauthorized", "forbidden"))
+            if hub_token is False and denied:
+                raise HubAuthError(
+                    f"Anonymous pull of {ref.immutable_ref} was refused (private "
+                    f"repo?): set a token ({', '.join(HUB_TOKEN_ENV_NAMES)}) or "
+                    f"username+password ({HUB_USERNAME_ENV_NAMES[0]} + "
+                    f"{HUB_PASSWORD_ENV_NAMES[0]})."
+                ) from e
+            raise
     return Path(path)
 
 

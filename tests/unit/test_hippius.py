@@ -161,3 +161,23 @@ def test_log_sink_accumulates_and_flushes_jsonl():
     lines = store.objects[key].strip().split("\n")
     assert len(lines) == 2
     assert '"loss":0.5' in lines[0] and '"step":2' in lines[1]
+
+
+def test_pull_token_falls_back_to_anonymous(monkeypatch, tmp_path):
+    """No Hub creds anywhere ⇒ pulls use the library's anonymous sentinel
+    (False) instead of raising — public repos need no account (2026-07-18:
+    an external validator's checkpoint fetch died on HubAuthError although
+    the registry serves the pull anonymously). Uploads stay strict."""
+    for name in (*hippius.HUB_TOKEN_ENV_NAMES, *hippius.HUB_USERNAME_ENV_NAMES,
+                 *hippius.HUB_PASSWORD_ENV_NAMES):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(hippius, "HUB_TOKEN_PATH", tmp_path / "absent-token")
+    assert hippius._resolve_hub_token_for_pull("Downloading x/y@sha256:z") is False
+    with pytest.raises(hippius.HubAuthError):
+        hippius._resolve_hub_token("Uploading ./d to x/y")
+
+
+def test_pull_token_prefers_real_credentials(monkeypatch, tmp_path):
+    monkeypatch.setenv(hippius.HUB_TOKEN_ENV_NAMES[0], "tok-123")
+    monkeypatch.setattr(hippius, "HUB_TOKEN_PATH", tmp_path / "absent-token")
+    assert hippius._resolve_hub_token_for_pull("Downloading x/y@sha256:z") == "tok-123"

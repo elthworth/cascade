@@ -286,7 +286,7 @@ def _plan_payload(cfg, client, work_root: Path | str) -> dict:
     block = int(client.current_block())
     epoch_blocks = max(1, cfg.round.epoch_blocks)
     next_boundary = (block // epoch_blocks + 1) * epoch_blocks
-    resolved = resolve_commitments(client.poll_commitments(),
+    resolved = resolve_commitments(client.poll_commitments(include_history=True),
                                    floor_block=cfg.round.commit_floor_block)
     # Same king resolution as the live round (loop.py run_forever): without
     # genesis_ref the vacant-throne fallback seats the lowest UID as interim

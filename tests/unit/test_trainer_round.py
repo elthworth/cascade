@@ -644,7 +644,7 @@ def test_plan_payload_counts_the_real_eligible_field(cfg, tmp_path):
         def current_block(self):
             return 3 * cfg.round.epoch_blocks + 100
 
-        def poll_commitments(self):
+        def poll_commitments(self, include_history=False):
             return [_commit(0, "a", REF_A, 5), _commit(1, "b", REF_B, 6),
                     _commit(2, "c", REF_A, 7)]   # 'c' copies the king's ref → deduped
 

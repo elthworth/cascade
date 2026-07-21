@@ -106,6 +106,31 @@ def test_participants_keep_latest_precutoff_commit_per_hotkey():
     assert parts[0].commit_block == 200
 
 
+def test_participant_survives_post_cutoff_recommit():
+    # A miner who re-commits for the NEXT round after the boundary stays in
+    # THIS round's participant set via their pre-cutoff reveal (the live bug:
+    # latest-only chain reads dropped 9 of 30 entrants from a round receipt).
+    commits = [
+        Commitment(0, "a", None, f"metro-v1:gen:hippius:{GEN_REF_KING}", 100),
+        Commitment(0, "a", None, f"metro-v1:gen:hippius:{GEN_REF_CHAL}", EPOCH_START + 50),
+    ]
+    parts = participants_from_commitments(commits, cutoff_block=EPOCH_START)
+    assert len(parts) == 1
+    assert parts[0].gen_ref == GEN_REF_KING and parts[0].commit_block == 100
+
+
+def test_participants_apply_go_live_floor():
+    # Mirrors the trainer's commit_floor_block: pre-launch commits (netuid
+    # squatters, rehearsals) never fielded the round, so they must not appear
+    # in its public record either.
+    commits = [
+        Commitment(0, "a", None, f"metro-v1:gen:hippius:{GEN_REF_KING}", 40),   # pre-floor
+        Commitment(1, "b", None, f"metro-v1:gen:hippius:{GEN_REF_CHAL}", 100),
+    ]
+    parts = participants_from_commitments(commits, cutoff_block=EPOCH_START, floor_block=50)
+    assert [p.hotkey for p in parts] == ["b"]
+
+
 # ── receipt assembly on the runner ────────────────────────────────────────────
 
 
@@ -185,7 +210,7 @@ class _FakeClient:
         assert block == EPOCH_START  # epoch boundary derived from created_block
         return BLOCK_HASH
 
-    def poll_commitments(self):
+    def poll_commitments(self, include_history=False):
         return [
             Commitment(0, "king_hk", None, f"metro-v1:gen:hippius:{GEN_REF_KING}", 100),
             Commitment(1, "chal_hk", None, f"metro-v1:gen:hippius:{GEN_REF_CHAL}", 200),

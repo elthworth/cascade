@@ -68,19 +68,27 @@ EvaluateFn = Callable[[TrainedEntry, list[EvalWindow]], list[WindowScore]]
 GiftRowsFn = Callable[[TrainedEntry], dict | None]
 
 
-def participants_from_commitments(commitments: list, cutoff_block: int) -> tuple[Participant, ...]:
+def participants_from_commitments(commitments: list, cutoff_block: int,
+                                  floor_block: int = 0) -> tuple[Participant, ...]:
     """The round's eligible participant set, for the public receipt.
 
     Mirrors the trainer's eligibility rule (``trainer.loop.resolve_commitments``):
-    parseable generator pointers revealed STRICTLY BEFORE the epoch boundary,
-    latest commit per hotkey among the eligible ones — but keeps ``commit_block``
-    so an auditor can re-check every entrant against the cutoff. Sorted by UID
-    for a deterministic receipt body.
+    parseable generator pointers revealed STRICTLY BEFORE the epoch boundary and
+    at/after the go-live ``floor_block``, latest commit per hotkey among the
+    eligible ones — but keeps ``commit_block`` so an auditor can re-check every
+    entrant against the cutoff. Sorted by UID for a deterministic receipt body.
+
+    ``commitments`` should carry each hotkey's FULL reveal history
+    (``poll_commitments(include_history=True)``): with only the latest reveal, a
+    miner who re-committed after the boundary vanishes from the record even
+    though their eligible pre-cutoff entry fielded the round.
     """
     from ..interface.validation import parse_commit
 
     best: dict[str, Participant] = {}
     for c in commitments:
+        if floor_block and c.commit_block < floor_block:
+            continue
         if c.commit_block >= cutoff_block:
             continue
         parsed = parse_commit(c.payload)
@@ -731,7 +739,9 @@ class ValidatorRunner:
             try:
                 epoch_hash = client.block_hash(epoch_start)
                 participants = participants_from_commitments(
-                    client.poll_commitments(), cutoff_block=epoch_start
+                    client.poll_commitments(include_history=True),
+                    cutoff_block=epoch_start,
+                    floor_block=self.cfg.round.commit_floor_block,
                 )
                 # Anchor for the dashboard's next-round countdown (best-effort;
                 # the client extrapolates block→wall-clock from this + as_of).

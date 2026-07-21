@@ -1300,11 +1300,16 @@ class TrainerRunner:
                 if round_id == last_round:
                     time.sleep(poll)
                     continue
-                commitments = client.poll_commitments()
+                # Full reveal history: a hotkey whose newest reveal landed at or
+                # after this boundary must still field its latest PRE-boundary
+                # reveal (resolve_commitments picks it) — latest-only reads made
+                # an early next-round re-commit forfeit the current round.
+                commitments = client.poll_commitments(include_history=True)
                 king_hotkey = client.highest_incentive_hotkey()
                 self._reload_remote_hosts()  # per-round elastic fleet pickup
                 log.info("starting round=%s epoch=%d epoch_start=%d king=%s field=%d",
-                         round_id, epoch, epoch_start, king_hotkey, len(commitments))
+                         round_id, epoch, epoch_start, king_hotkey,
+                         len({c.hotkey for c in commitments}))
                 manifest = self.run_round(
                     commitments, king_hotkey, base_seed, block, cutoff_block=epoch_start,
                 )

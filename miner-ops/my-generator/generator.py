@@ -257,7 +257,7 @@ class Generator(DataGenerator):
                 import torch
 
                 torch.manual_seed(self._seed)
-                torch.use_deterministic_algorithms(True)
+                torch.use_deterministic_algorithms(True, warn_only=True)
                 torch.set_num_threads(1)
             except Exception:  # pragma: no cover - torch is allowlisted, be safe
                 pass

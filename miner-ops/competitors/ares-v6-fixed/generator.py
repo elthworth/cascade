@@ -213,7 +213,7 @@ class Generator(DataGenerator):
         if _torch is not None:
             try:
                 _torch.manual_seed(self._seed)
-                _torch.use_deterministic_algorithms(True)
+                _torch.use_deterministic_algorithms(True, warn_only=True)
                 _torch.set_num_threads(1)  # avoid nondeterministic thread reductions
             except Exception:  # pragma: no cover - defensive
                 pass

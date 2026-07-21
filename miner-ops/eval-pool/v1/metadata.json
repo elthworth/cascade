@@ -1,0 +1,2267 @@
+{
+  "openmeteo__grid_-48_-107__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-107__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-107__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-107__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-107__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-107__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-107__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-107__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-107__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-107__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-107__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-124__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-124__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-124__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-124__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-124__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-124__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-124__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-124__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-124__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-124__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-124__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-141__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-141__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-141__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-141__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-141__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-141__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-141__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-141__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-141__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-141__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-141__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-158__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-158__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-158__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-158__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-158__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-158__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-158__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-158__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-158__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-158__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-158__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-175__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-175__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-175__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-175__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-175__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-175__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-175__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-175__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-175__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-175__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-175__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-22__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-22__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-22__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-22__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-22__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-22__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-22__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-22__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-22__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-22__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-22__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-39__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-39__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-39__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-39__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-39__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-39__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-39__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-39__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-39__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-39__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-39__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-56__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-56__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-56__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-56__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-56__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-56__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-56__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-56__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-56__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-56__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-56__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-5__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-5__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-5__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-5__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-5__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-5__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-5__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-5__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-5__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-5__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-5__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-73__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-73__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-73__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-73__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-73__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-73__pressure_msl": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-73__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-73__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-73__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-73__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-73__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-73__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-90__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-90__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-90__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-90__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-90__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-90__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-90__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-90__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-90__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-90__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_-90__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_12__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_12__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_12__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_12__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_12__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_12__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_12__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_12__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_12__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_12__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_12__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_29__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_29__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_29__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-48_29__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-107__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-107__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-107__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-107__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-107__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-107__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-107__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-107__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-107__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-107__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-107__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-124__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-124__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-124__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-124__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-124__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-124__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-124__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-124__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-124__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-124__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-124__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-141__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-141__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-141__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-141__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-141__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-141__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-141__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-141__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-141__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-141__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-141__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-158__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-158__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-158__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-158__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-158__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-158__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-158__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-158__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-158__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-158__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-158__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-175__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-175__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-175__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-175__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-175__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-175__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-175__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-175__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-175__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-175__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-175__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-22__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-22__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-22__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-22__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-22__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-22__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-22__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-22__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-22__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-22__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-22__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-39__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-39__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-39__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-39__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-39__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-39__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-39__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-39__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-39__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-39__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-39__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-56__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-56__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-56__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-56__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-56__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-56__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-56__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-56__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-56__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-56__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-56__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-5__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-5__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-5__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-5__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-5__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-5__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-5__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-5__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-5__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-5__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-5__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-73__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-73__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-73__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-73__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-73__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-73__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-73__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-73__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-73__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-73__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-73__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-90__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-90__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-90__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-90__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-90__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-90__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-90__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-90__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-90__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-90__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_-90__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_114__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_114__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_114__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_114__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_114__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_114__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_114__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_114__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_114__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_114__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_114__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_12__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_12__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_12__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_12__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_12__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_12__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_12__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_12__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_12__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_12__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_12__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_131__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_131__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_131__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_131__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_131__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_131__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_131__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_131__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_131__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_131__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_131__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_148__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_148__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_148__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_148__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_148__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_148__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_148__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_148__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_148__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_148__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_148__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_165__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_165__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_165__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_165__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_165__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_165__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_165__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_165__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_165__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_165__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_165__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_29__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_29__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_29__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_29__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_29__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_29__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_29__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_29__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_29__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_29__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_29__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_46__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_46__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_46__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_46__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_46__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_46__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_46__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_46__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_46__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_46__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_46__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_63__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_63__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_63__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_63__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_63__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_63__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_63__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_63__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_63__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_63__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_63__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_80__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_80__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_80__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_80__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_80__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_80__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_80__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_80__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_80__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_80__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_80__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_97__apparent_temperature": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_97__cloud_cover": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_97__cloud_cover_low": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_97__cloud_cover_mid": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_97__dew_point_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_97__relative_humidity_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_97__surface_pressure": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_97__temperature_2m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_97__wind_gusts_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_97__wind_speed_100m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "openmeteo__grid_-60_97__wind_speed_10m": {
+    "domain": "weather",
+    "freq": "H",
+    "seasonal_period": 24
+  },
+  "wikimedia__Albert_Einstein": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Amazon__company": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Amazon_rainforest": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Apple_Inc": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Argentina": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Artificial_intelligence": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Association_football": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Australia": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Basketball": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Beyonc": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Biology": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Bitcoin": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Black_hole": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Brazil": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Canada": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Charles_Darwin": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Chemistry": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Chess": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__China": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Climate_change": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Cricket": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Cryptocurrency": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__DNA": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Economics": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Egypt": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Electricity": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Elvis_Presley": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Ethereum": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Evolution": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__FIFA_World_Cup": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Formula_One": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__France": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Germany": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Google": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Grand_Canyon": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Great_Barrier_Reef": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Human_brain": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__India": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Indonesia": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Inflation": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Isaac_Newton": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Italy": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Japan": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Leonardo_da_Vinci": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Marie_Curie": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Mathematics": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Meta_Platforms": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Mexico": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Michael_Jackson": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Microsoft": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Mount_Everest": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__National_Basketball_Association": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Netflix": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Niagara_Falls": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Nigeria": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Nikola_Tesla": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Nvidia": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Olympic_Games": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Pacific_Ocean": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Periodic_table": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Philosophy": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Photosynthesis": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Physics": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Pyramids_of_Giza": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Quantum_mechanics": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Russia": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Sahara": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Samsung": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Solar_System": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__South_Africa": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Spain": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Stephen_Hawking": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Stock_market": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Taylor_Swift": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Tennis": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Tesla__Inc": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__The_Beatles": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Toyota": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Turkey": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__United_Kingdom": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__United_States": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__Vaccine": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__William_Shakespeare": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__World_War_I": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  },
+  "wikimedia__World_War_II": {
+    "domain": "web_traffic",
+    "freq": "D",
+    "seasonal_period": 7
+  }
+}

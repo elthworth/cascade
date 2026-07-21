@@ -1,0 +1,29 @@
+{
+  "builder_version": "cascade-pool/1",
+  "config": {
+    "context_length": 4096,
+    "horizon": 64,
+    "keep_tail": true,
+    "max_channels": 1,
+    "max_missing_frac": 0.2,
+    "max_series_per_domain": null,
+    "max_series_total": 500,
+    "min_context": 256,
+    "min_std": 1e-08
+  },
+  "summary": {
+    "as_of": "2026-07-20",
+    "context_length": 4096,
+    "dropped": {
+      "duplicate": 32
+    },
+    "horizon": 64,
+    "n_points": 1658465,
+    "n_series": 453,
+    "out_dir": "/home/ubuntu/workspace/miner-ops/eval-pool/v1",
+    "per_domain": {
+      "weather": 368,
+      "web_traffic": 85
+    }
+  }
+}

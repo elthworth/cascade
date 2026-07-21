@@ -1,0 +1,28 @@
+{
+  "min_length": 64,
+  "max_length": 4096,
+  "generate_length": 4096,
+  "batch_size": 256,
+  "weights": {
+    "forecast_pfn": 0.50,
+    "jt_tsa": 0.06,
+    "jt_mult": 0.08,
+    "jt_regime": 0.05,
+    "jt_intermittent": 0.06,
+    "pageviews": 0.04,
+    "web_counts": 0.04,
+    "rhythm": 0.06,
+    "counts": 0.05,
+    "tsmixup": 0.06
+  },
+  "standardize": false,
+  "clip_sigma": 0.0,
+  "max_abs_value": 1000000.0,
+  "family_params": {
+    "forecast_pfn": {"harmonic_scale_ratio": 0.65, "harmonic_rate": 1.25},
+    "jt_tsa": {"family": "trend_seasonal_ar"},
+    "jt_mult": {"family": "multiplicative"},
+    "jt_regime": {"family": "regime_shift"},
+    "jt_intermittent": {"family": "intermittent"}
+  }
+}

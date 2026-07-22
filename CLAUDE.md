@@ -28,6 +28,11 @@ in-context.
   metronome + synchronized handoff BEFORE trainer consumption + audit rework;
   mainnet stays unarmed until both survive a full testnet cascade.
   (`decisions/DEC-CA-0005-warm-start-sequencing.md`)
+- **DEC-CA-0004** — Cascade promotion PERSISTS the king (re-crown, reset clock
+  only); vacate removed, not configurable (consensus-critical). Vacate had no
+  benefit (shared init ⇒ no incumbency advantage; old king earns through the
+  vacancy anyway) and froze the metronome. Kills DEC-CA-0005's handoff-sync
+  workstream. (`decisions/DEC-CA-0004-cascade-persist-throne.md`)
 
 New decisions get the next `DEC-CA-####` node in `decisions/` plus a one-line
 pointer here. Put the revisit condition in the node's `revisit_when:` key.

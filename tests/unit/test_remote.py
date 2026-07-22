@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import types
+from pathlib import Path
 
 import pytest
 
@@ -117,6 +118,52 @@ def test_build_remote_command_sets_cd_cuda_and_env():
     assert "CUDA_VISIBLE_DEVICES=1" in cmd
     assert "HIPPIUS_S3_ACCESS_KEY=ak" in cmd
     assert cmd.rstrip().endswith("python -m x")
+
+
+def _capturing_runner(seen: dict):
+    """A dispatcher _runner that records the remote command and returns a receipt."""
+    def _run(argv, timeout):
+        seen["cmd"] = argv[-1]
+        return _fake_proc(stdout=f"{RECEIPT_SENTINEL}{json.dumps(_receipt_dict(role='king'))}")
+    return _run
+
+
+def test_dispatch_forwards_extra_env_on_top_of_host(monkeypatch):
+    # extra_forward_env (e.g. WANDB_API_KEY when [wandb] is on) reaches the pod
+    # without the operator listing it per-host — so pod-side wandb actually logs.
+    monkeypatch.setenv("WANDB_API_KEY", "wbkey")
+    monkeypatch.setenv("HIPPIUS_HUB_TOKEN", "tok")
+    seen: dict = {}
+    disp = RemoteDispatcher(trainer_spec="m:C", extra_forward_env=("WANDB_API_KEY",),
+                            _runner=_capturing_runner(seen))
+    disp.dispatch(_host(forward_env=("HIPPIUS_HUB_TOKEN",)), gen_ref=REF_A, uid=0,
+                  hotkey="hk", role="king", base_seed=1, block=10)
+    assert "WANDB_API_KEY=wbkey" in seen["cmd"]       # auto-forwarded extra
+    assert "HIPPIUS_HUB_TOKEN=tok" in seen["cmd"]      # host's own forward_env kept
+
+
+def test_dispatch_omits_extra_env_when_absent_from_orchestrator(monkeypatch):
+    # Only forwarded if actually present — absent ⇒ no stray/empty assignment.
+    monkeypatch.delenv("WANDB_API_KEY", raising=False)
+    seen: dict = {}
+    disp = RemoteDispatcher(trainer_spec="m:C", extra_forward_env=("WANDB_API_KEY",),
+                            _runner=_capturing_runner(seen))
+    disp.dispatch(_host(), gen_ref=REF_A, uid=0, hotkey="hk", role="king",
+                  base_seed=1, block=10)
+    assert "WANDB_API_KEY" not in seen["cmd"]
+
+
+def test_trainer_forwards_wandb_key_only_when_enabled(cfg):
+    from dataclasses import replace
+
+    from cascade.shared.config import WandbConfig
+
+    on = TrainerRunner(cfg=replace(cfg, wandb=WandbConfig(enabled=True)),
+                       base_trainer=None, work_root=Path("."))
+    off = TrainerRunner(cfg=replace(cfg, wandb=WandbConfig(enabled=False)),
+                        base_trainer=None, work_root=Path("."))
+    assert on._pod_extra_forward_env() == ("WANDB_API_KEY",)
+    assert off._pod_extra_forward_env() == ()
 
 
 def test_preempt_pattern_matches_only_the_live_scorer():

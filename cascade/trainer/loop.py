@@ -999,6 +999,17 @@ class TrainerRunner:
                 log.warning("heat: challenger %s failed to train: %s", c.hotkey, e)
         return out
 
+    def _pod_extra_forward_env(self) -> tuple[str, ...]:
+        """Env vars every pod dispatch forwards on top of each host's own list.
+
+        When [wandb] is enabled the training runs on the pod, so the POD is where
+        ``open_wandb_run`` needs ``WANDB_API_KEY`` — forwarding it here means
+        pod-side wandb logs land without the operator having to name the key in
+        every host's ``forward_env`` (the silent-no-op that leaves wandb runs with
+        no training logs). Only forwarded if actually present in the orchestrator
+        env; absent ⇒ the pod's wandb no-ops exactly as before."""
+        return ("WANDB_API_KEY",) if getattr(self.cfg.wandb, "enabled", False) else ()
+
     def _hosts_for(self, stage: str) -> list:
         """The pods serving ``stage`` ("heat" | "final"): hosts tagged with that
         stage or ``"any"``. The cheap-GPU seam — heats can run on a cheaper SKU
@@ -1104,7 +1115,8 @@ class TrainerRunner:
         # where SSH never returns) holding a heat slot for the full 6h default.
         # Guard + 30min covers fetch/sandbox/upload overheads around training.
         heat_timeout = min(self.remote_timeout_seconds, heat_contract.max_train_seconds + 1800)
-        disp = RemoteDispatcher(trainer_spec=self.trainer_spec, timeout_seconds=heat_timeout)
+        disp = RemoteDispatcher(trainer_spec=self.trainer_spec, timeout_seconds=heat_timeout,
+                                extra_forward_env=self._pod_extra_forward_env())
 
         # Lane pool: dispatch lands on whichever GPU lane is actually idle
         # (see _dispatch_on_free_lane — the old i % n pin double-booked lanes).
@@ -1204,7 +1216,8 @@ class TrainerRunner:
             raise RuntimeError("remote training requires trainer_spec (BaseTrainer 'module:Class')")
         hosts = self._hosts_for("final")
         disp = RemoteDispatcher(
-            trainer_spec=self.trainer_spec, timeout_seconds=self.remote_timeout_seconds
+            trainer_spec=self.trainer_spec, timeout_seconds=self.remote_timeout_seconds,
+            extra_forward_env=self._pod_extra_forward_env(),
         )
 
         def _run(i: int, gen: ResolvedGenerator, role: str) -> TrainedEntry:

@@ -13,9 +13,9 @@ in-context.
   generator throughput is a compute multiplier and mass `deadline_hit`s are
   intentional — do NOT "fix" them by loosening the wall.
   (`decisions/DEC-CA-0001-throughput-wall-is-the-law.md`)
-- **DEC-CA-0002** — Mainnet home is netuid 91 (decided 2026-07-14). Checklist
-  and blockers in `docs/MAINNET_LAUNCH.md` (L40S pin, worker-image digest,
-  container sandbox, pool-publish cron; gift gate shadow → enforce).
+- **DEC-CA-0002** — Mainnet home is netuid 91 (decided 2026-07-14). `chain.toml`
+  ships with the mainnet values baked in (netuid 91, L40S pin, worker-image
+  digest, `pool_bucket`).
   (`decisions/DEC-CA-0002-mainnet-netuid-91.md`)
 
 New decisions get the next `DEC-CA-####` node in `decisions/` plus a one-line

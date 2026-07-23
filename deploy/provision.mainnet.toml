@@ -45,6 +45,19 @@ max_duds_per_stage    = 8
 # the margin, saving ~a heat's worth of idle L40S billing per round. If the
 # primary L40S rung probes scarce at the margin, the final rents early via
 # the ladder — the exception that locks capacity in a thin market.
+#
+# JIT delivery budget vs the trainer's pre-duel wait (--hosts-wait-seconds,
+# launched at 5400s): marker→healthy is ~15-25 min on the happy path (ready
+# wait + auth lag + bootstrap + health gate), ~35-70 min when a dud forces a
+# replacement or a rung escalates, and ~65-100 min when a whole attempt fails
+# and the 15-min retry delivers on attempt two. The trainer polls the hosts
+# file every ≤15s during its wait, so delivery latency is the only latency.
+# The pathological tail (every timeout maxed: 900s ready + 900s auth + 1800s
+# bootstrap per pod, dud + replacement sequential) can exceed the wait — the
+# trainer then duels on whatever is on file (static hosts) or locally, and
+# the late pods are torn down by the manifest/TTL. Don't shrink the trainer's
+# wait below ~5400s with this mode on; on a 24h epoch, waiting costs only
+# manifest lateness while a local L40S-pinned duel costs the round.
 final_rent_on         = "heat_complete"
 eval_hosts_path       = "/root/cascade/eval_hosts.toml"
 receipt_prefix        = "receipts/<MAINNET-VALIDATOR-HOTKEY>/"   # teardown latch

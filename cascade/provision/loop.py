@@ -128,10 +128,16 @@ POD_TAG = "cascade-"                       # every rented pod's name starts with
 _PROVISIONER_POD_RE = re.compile(r"^cascade-\d+-(heat|final|eval)(-|$)")
 
 # Boot slack folded into the "is there still time?" checks for late rentals
-# (JIT final rental and within-round retries): pods take ~10-15 min from rent
-# to healthy, so a stage is only worth renting while at least its training
-# hours PLUS this margin remain in the round.
-BOOT_MARGIN_HOURS = 0.5
+# (JIT final rental and within-round retries). Sized from the REAL delivery
+# budget, not the happy path: ready wait (≤15 min) + auth-injection lag
+# (≤15 min, hyperstack VMs observed at 7-8) + bootstrap (≤30 min) + health
+# gate lands one pod in ~15-25 min typically but 45-70 min when a dud forces
+# its replacement or a rung escalates — so a stage is only worth renting
+# while its training hours PLUS a full hour remain. This also keeps the JIT
+# refusal tighter than the trainer's pre-duel hosts wait (launched at 90
+# min): a rental the provisioner starts, the trainer will still be waiting
+# for.
+BOOT_MARGIN_HOURS = 1.0
 
 
 def is_provisioner_pod_name(name: str) -> bool:

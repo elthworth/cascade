@@ -1010,8 +1010,9 @@ class ValidatorRunner:
                         outcome = self.process_round(manifest, windows, base_seed)
                         # Back in sync — clear any accumulated resync holds so a
                         # future desync starts the safety-valve count from zero.
-                        if self.state.resync_holds:
-                            self.state = replace(self.state, resync_holds=0)
+                        if self.state.resync_holds or self.state.last_resync_round_id:
+                            self.state = replace(
+                                self.state, resync_holds=0, last_resync_round_id=None)
                         last_round, last_digest = manifest.round_id, digest
                         self._persist_state()
                         reward_uids = self._reward_uids(manifest, outcome, client)
@@ -1126,12 +1127,17 @@ class ValidatorRunner:
         forever would wedge the subnet — the valve abandons it and adopts the
         trainer's trained king (:func:`state.demote_to_trained`), and normal
         scoring resumes next round. ``king_resync_max_rounds <= 0`` disables the
-        valve (hold indefinitely). Pure: returns the new state; the caller
-        persists, votes, and publishes.
+        valve (hold indefinitely). The counter advances once per DISTINCT
+        un-synced round: a restart re-gates the same stale manifest, and
+        counting those re-gates let five restarts during a pause trip the
+        valve and demote a healthy champion (2026-07-22). Pure: returns the
+        new state; the caller persists, votes, and publishes.
         """
         champ = self.state.king_hotkey
         trained = self._manifest_king_hotkey(manifest)
-        holds = self.state.resync_holds + 1
+        round_id = str(manifest.round_id)
+        same_round = self.state.last_resync_round_id == round_id
+        holds = self.state.resync_holds if same_round else self.state.resync_holds + 1
         cap = self.cfg.scoring.king_resync_max_rounds
         if 0 < cap <= holds and trained is not None:
             log.warning(
@@ -1154,7 +1160,7 @@ class ValidatorRunner:
             holds, cap if cap > 0 else "∞",
         )
         return (
-            replace(self.state, resync_holds=holds),
+            replace(self.state, resync_holds=holds, last_resync_round_id=round_id),
             f"king_resyncing: champion {champ} != trained king {trained}",
         )
 

@@ -68,23 +68,16 @@ market_sku   = "RTX4090"
 gpus_per_pod = 2
 max_price_hr = 1.30
 
-[[provisioner.heat.candidate]]           # fallback 5: 2x A6000
+[[provisioner.heat.candidate]]           # fallback 5 (floor): 2x A6000
 sku          = "NVIDIA RTX A6000"
 market_sku   = "A6000"
 gpus_per_pod = 2
 max_price_hr = 1.20
 
-[[provisioner.heat.candidate]]           # fallback 6: 1x 4090 singles — the always-liquid net
-sku          = "NVIDIA GeForce RTX 4090"
-market_sku   = "RTX4090"
-gpus_per_pod = 1
-max_price_hr = 0.85
-
-[[provisioner.heat.candidate]]           # fallback 7: 1x A6000 singles
-sku          = "NVIDIA RTX A6000"
-market_sku   = "A6000"
-gpus_per_pod = 1
-max_price_hr = 0.60
+# No 1x rungs: every pod pays the full bootstrap cost (rsync + uv sync) for a
+# single lane, and a singles fleet burns max_pods on 8 flaky boxes for 8 slots.
+# The 2x rungs are the floor; below that the trainer's local fallback is
+# cheaper than a singles fleet.
 
 [provisioner.final]
 sku          = "NVIDIA L40S"

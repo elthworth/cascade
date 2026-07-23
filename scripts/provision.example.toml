@@ -130,11 +130,11 @@ market_sku   = "RTX4090"
 gpus_per_pod = 8
 max_price_hr = 5.00
 
-[[provisioner.heat.candidate]]           # last resort: singles are always liquid
-sku          = "NVIDIA GeForce RTX 4090"
-market_sku   = "RTX4090"
-gpus_per_pod = 1
-max_price_hr = 0.60
+[[provisioner.heat.candidate]]           # last resort: 2x is the floor — 1x
+sku          = "NVIDIA GeForce RTX 4090"  # singles pay a full bootstrap per
+market_sku   = "RTX4090"                  # lane and rarely beat the trainer's
+gpus_per_pod = 2                          # local fallback
+max_price_hr = 1.30
 
 # ── final fleet: the pinned SKU, king + finalists on ONE pod ─────────────────
 # Default shape is a single pod with gpus_per_pod >= 1 + [round] finalists:

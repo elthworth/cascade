@@ -24,7 +24,11 @@ cheapest signal first (`ProvisionerLoop._rent_stage_escalating`):
    pipeline every `rent_retry_cooldown_s` (15 min) for as long as the stage
    can still matter: the heat while one serial screening wave fits its
    remaining window (the fleet re-sizes to that window), the final while
-   full duel hours + boot margin remain (`_maybe_retry_stages`);
+   full duel hours + boot margin remain (`_maybe_retry_stages`). Probe-only
+   failures retry at the flat cadence all round; attempts that LAUNCHED only
+   duds double the stage's cooldown per attempt (capped 8×), and
+   `max_duds_per_stage` (8) stops renting for the round when a market keeps
+   selling broken pods — duds bill minutes the budget breaker cannot see;
 5. the FINAL fleet is stage-phased (`final_rent_on = "heat_complete"` on
    mainnet): rented just-in-time at the trainer's `heat_complete.json`
    marker, sized off the marker's ACTUAL finalist list — unless the primary
@@ -34,18 +38,22 @@ cheapest signal first (`ProvisionerLoop._rent_stage_escalating`):
    "final")`, waiting `--hosts-wait-seconds`), so JIT pods land inside its
    patience.
 
-Escalation is bounded by wall clock (`escalate_deadline_s`, 30 min), not
-attempt count. The bound is NOT because degrading is acceptable — the
-orchestrator is CPU-only, so trainer-local training is effectively a lost
-round, and a locally-trained final can never pass the validator's
-`expected_gpu` pin regardless — but because the rent path blocks the service
-loop: while it escalates, teardown/heartbeat/reaper ticks starve (the
-starvation class behind the 2026-07-14 lost window). The between-attempt
-waiting of rules 4-5 costs nothing: the loop keeps cycling and only the
-attempts themselves block. The rent-once latch still guards `plan_fn` and
-the 30s poll cadence. The eval stage deliberately does not escalate (one
-pod; the validator's local CPU evals are genuinely viable, unlike
-trainer-local training).
+Renting runs in a WORKER THREAD (one at a time), the discipline the eval
+stage earned after 2026-07-14: boot waits and ladder escalation never starve
+teardown/heartbeat/reconcile ticks. Consequences: the orphan reaper skips
+its tick while a rent worker runs (a worker may own pods it has not
+ledgered yet), ledger mutations are lock-guarded across the two threads,
+and a manifest publishing mid-rent aborts the worker (its ledgered pods die
+in the next sweep, the publish is skipped). `escalate_deadline_s` (30 min)
+now bounds ONE attempt — not loop liveness — so the single worker never
+starves the JIT final, the retries, or the next round's trigger. Degrading
+is still never acceptable: the orchestrator is CPU-only, so trainer-local
+training is effectively a lost round, and a locally-trained final can never
+pass the validator's `expected_gpu` pin regardless — hence rule 4's
+persistence. The rent-once latch still guards `plan_fn` and the 30s poll
+cadence. The eval stage deliberately does not escalate (one pod; the
+validator's local CPU evals are genuinely viable), and eval rents now
+respect the round's committed heat/final spend (one-way budget coupling).
 
 Same decision, config side: the heat ladder's floor is 2× pods — no 1× rungs.
 A single-GPU pod pays the full bootstrap cost (rsync + `uv sync`) for one

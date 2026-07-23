@@ -15,10 +15,12 @@ One cycle of the machine (each ``poll_seconds``, ~30s):
            marker's ACTUAL finalist list) unless the pinned SKU's primary
            rung probes scarce at the margin, the early-rental exception
            (see ``_maybe_rent_final_jit`` / ``_final_primary_has_capacity``);
-    RENT   the stage's SKU ladder × provider priority order, with escalation:
-           a rung that delivers NO healthy pod (failed launch, or every pod
+    RENT   in a WORKER THREAD (the loop keeps ticking — boot waits must never
+           starve teardown/heartbeat/reconcile, the 2026-07-14 lesson): the
+           stage's SKU ladder × provider priority order, with escalation — a
+           rung that delivers NO healthy pod (failed launch, or every pod
            and its replacement a dud) falls to the next (candidate × provider)
-           rung under a wall-clock deadline, and a fleet below viability gets
+           rung under a per-attempt deadline, and a fleet below viability gets
            one same-candidate top-up (see ``_rent_stage_escalating``); every
            pod is named/tagged ``cascade-{round_id}-…`` so reconcile can find
            strays;
@@ -74,6 +76,7 @@ import logging
 import math
 import re
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -244,19 +247,29 @@ class ProvisionerLoop:
     heartbeat_every_s: float = 600.0
     ready_timeout: float = DEFAULT_READY_TIMEOUT
     poll_seconds: float = 30.0
-    # Rules of escalation (see _rent_stage_escalating): how long past its
-    # FIRST rent attempt a stage may keep walking the SKU ladder (0 = a rung
-    # that fails is final — the pre-escalation behaviour), and the fraction
-    # of demanded slots below which a partial fleet earns its one
-    # same-candidate top-up batch (0 = never top up).
+    # Rules of escalation (see _rent_stage_escalating): how long ONE rent
+    # attempt may keep walking the SKU ladder (0 = a rung that fails is
+    # final — the pre-escalation behaviour), and the fraction of demanded
+    # slots below which a partial fleet earns its one same-candidate top-up
+    # batch (0 = never top up). Renting runs off-thread; the deadline bounds
+    # the single worker so JIT/retry/next-round triggers are never starved.
     escalate_deadline_s: float = 1800.0
     min_viable_fleet: float = 0.5
     # Within-round retry (see _maybe_retry_stages): a stage that rented
-    # NOTHING re-attempts the whole pick→budget→rent pipeline this often,
-    # for as long as enough of the round remains for the stage to still
-    # matter. 0 = the pre-retry behaviour (one attempt per round). The
+    # NOTHING re-attempts the whole pick→budget→rent pipeline on this
+    # cadence, for as long as enough of the round remains for the stage to
+    # still matter. 0 = the pre-retry behaviour (one attempt per round). The
     # rent-once latch still guards plan_fn and the 30s poll cadence.
+    # Probe-only failures (no capacity anywhere) retry at this flat cadence
+    # all round — they cost API calls, nothing more. Attempts that LAUNCHED
+    # pods which all failed the gate double the stage's cooldown per attempt
+    # (capped 8×): a zombie pool gets slower, cheaper bites, not a hard stop.
     rent_retry_cooldown_s: float = 900.0
+    # The money backstop for zombie markets: once a stage has burned this
+    # many dud pods (launched, failed boot/health, terminated) in one round,
+    # it stops RENTING for the round — every dud bills minutes the budget
+    # breaker does not model. <= 0 disables the cap.
+    max_duds_per_stage: int = 8
     # When to rent the FINAL fleet: "margin" (with the heat, at the epoch
     # boundary — the pre-phased behaviour) or "heat_complete" (just-in-time,
     # when the trainer's marker says the finalists are known — see
@@ -303,9 +316,24 @@ class ProvisionerLoop:
     _round_plan: dict | None = field(default=None, init=False, repr=False)
     _stage_failed: set = field(default_factory=set, init=False, repr=False)
     _committed: dict = field(default_factory=dict, init=False, repr=False)
-    _last_rent_attempt_at: float = field(default=0.0, init=False, repr=False)
     _final_pending: bool = field(default=False, init=False, repr=False)
     _heat_marker_latched: bool = field(default=False, init=False, repr=False)
+    # The rent worker (mirrors the eval thread): renting runs OFF the loop
+    # thread so boot waits and ladder escalation never starve teardown/
+    # heartbeat/reconcile ticks. One worker at a time (_rent_inflight);
+    # _rent_abort is set when the round's manifest publishes mid-rent so the
+    # worker stops escalating and skips the publish (its ledgered pods die
+    # in the next teardown sweep).
+    _rent_inflight: bool = field(default=False, init=False, repr=False)
+    _rent_thread: object = field(default=None, init=False, repr=False)
+    _rent_abort: object = field(default_factory=threading.Event, init=False, repr=False)
+    # Per-stage retry pacing: next allowed attempt time, the backoff
+    # multiplier (doubles per dud-launching attempt, capped), and the
+    # round's dud-pod count feeding max_duds_per_stage.
+    _next_retry_at: dict = field(default_factory=dict, init=False, repr=False)
+    _retry_backoff: dict = field(default_factory=dict, init=False, repr=False)
+    _dud_pods: dict = field(default_factory=dict, init=False, repr=False)
+    _pending_logged_at: float = field(default=0.0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._state = load_state(self.state_path)
@@ -368,8 +396,16 @@ class ProvisionerLoop:
         self._maybe_provision_eval()
         if should_trigger(block, self.epoch_blocks,
                           self.policy.trigger_margin_blocks, self._provisioned_round):
-            round_id = (block // self.epoch_blocks + 1) * self.epoch_blocks
-            self._provision_round(round_id)
+            if self._rent_inflight:
+                # A rent worker (previous round's retry, most likely) is still
+                # running. The rent-once latch is only set inside
+                # _provision_round, so the trigger simply re-fires next tick —
+                # the worker's escalation deadline bounds the wait.
+                log.warning("trigger window open but a rent worker is still "
+                            "running; deferring the round trigger one tick")
+            else:
+                round_id = (block // self.epoch_blocks + 1) * self.epoch_blocks
+                self._provision_round(round_id)
         self._maybe_rent_final_jit(block)
         self._maybe_retry_stages(block)
 
@@ -452,8 +488,12 @@ class ProvisionerLoop:
         self._round_plan = dict(payload)
         self._stage_failed = set()
         self._committed = {}
+        self._next_retry_at = {}
+        self._retry_backoff = {}
+        self._dud_pods = {}
         self._final_pending = False
         self._heat_marker_latched = False
+        self._rent_abort.clear()
 
         fleet = size_fleet(
             int(payload["eligible_challengers"]),
@@ -498,12 +538,38 @@ class ProvisionerLoop:
             # that needs no base_seed knowledge.
             self._manifest_baseline = self._latest_round_id()
             self._learned_round_id = None
-            self._state = (RoundState(round_id=str(round_id)) if self._state is None
-                           else replace(self._state, round_id=str(round_id),
-                                        published=False))
-            self._state = replace(self._state, final_pending=self._final_pending)
-            self._save()
-        self._rent_stages(round_id, wants)
+            with self._state_lock:
+                self._state = (RoundState(round_id=str(round_id)) if self._state is None
+                               else replace(self._state, round_id=str(round_id),
+                                            published=False))
+                self._state = replace(self._state, final_pending=self._final_pending)
+                self._save()
+        self._spawn_rent(round_id, wants)
+
+    def _spawn_rent(self, round_id: int | str, wants: dict[str, int]) -> None:
+        """Run ``_rent_stages`` in a daemon worker — renting never blocks the loop.
+
+        The same discipline the eval stage earned on 2026-07-14 (a boot wait
+        swallowed a trigger window), applied to the boundary stages: provider
+        ready-waits and ladder escalation can run for many minutes, and the
+        loop must keep tearing down, heartbeating, and reconciling meanwhile.
+        One worker at a time (``_rent_inflight`` — the JIT/retry phases skip
+        their tick while one runs); the ledger write-ahead inside
+        ``_rent_stage`` keeps a crash mid-worker reconcilable, exactly as on
+        the old inline path.
+        """
+        def _worker() -> None:
+            try:
+                self._rent_stages(round_id, wants)
+            except Exception as e:  # noqa: BLE001 — a failed rent never kills the loop
+                log.exception("round %s rent worker failed: %s", round_id, e)
+            finally:
+                self._rent_inflight = False
+
+        self._rent_inflight = True
+        t = threading.Thread(target=_worker, name=f"rent-{round_id}", daemon=True)
+        self._rent_thread = t                     # tests join() for determinism
+        t.start()
 
     def _rent_stages(self, round_id: int | str, wants: dict[str, int]) -> None:
         """Pick → budget → rent (with escalation) → publish, for ``wants``.
@@ -528,11 +594,10 @@ class ProvisionerLoop:
             if picked is None:
                 log.error("round %s: no provider has capacity for the %s stage",
                           round_id, stage)
-                self._stage_failed.add(stage)
+                self._note_stage_failure(stage, launched_duds=False)
             else:
                 chosen[stage] = picked
                 offer_iters[stage] = offers
-        self._last_rent_attempt_at = self.clock()
         if not chosen:
             if wants:
                 log.error("round %s: nothing rentable this attempt; publishing "
@@ -549,7 +614,8 @@ class ProvisionerLoop:
                       "(+$%.2f already committed) > cap $%.2f (offers %s)",
                       round_id, projected, committed,
                       self.policy.max_spend_per_round, offers_log)
-            self._stage_failed.update(chosen)
+            for stage in chosen:
+                self._note_stage_failure(stage, launched_duds=False)
             self._republish_from_ledger()
             return
         log.info("round %s budget ok: worst-case $%.2f + $%.2f committed <= cap $%.2f",
@@ -565,6 +631,11 @@ class ProvisionerLoop:
 
         rented_any = False
         for stage in list(chosen):
+            if self._rent_abort.is_set():
+                log.warning("round %s: manifest published mid-rent — aborting the "
+                            "remaining stage rental(s)", round_id)
+                break
+            duds_before = self._dud_pods.get(stage, 0)
             healthy = self._rent_stage_escalating(
                 round_id, stage, chosen, offer_iters[stage], wants[stage])
             if healthy:
@@ -572,16 +643,45 @@ class ProvisionerLoop:
                 _prov, price, _cand, pods = chosen[stage]   # escalation-updated
                 self._committed[stage] = pods * price * self.ttl_hours
                 self._stage_failed.discard(stage)
+                self._retry_backoff.pop(stage, None)
+                self._next_retry_at.pop(stage, None)
             else:
-                self._stage_failed.add(stage)
+                self._note_stage_failure(
+                    stage, launched_duds=self._dud_pods.get(stage, 0) > duds_before)
+        if self._rent_abort.is_set():
+            # Round over: whatever this attempt ledgered dies in the next
+            # teardown sweep; publishing it would only list doomed pods.
+            return
         if not rented_any:
             log.error("round %s: every rented pod failed its health gate; "
                       "publishing surviving fleet only (retry on cooldown)", round_id)
             self._republish_from_ledger()
             return
         self._republish_from_ledger()
-        self._state = replace(self._state, published=True)
-        self._save()
+        with self._state_lock:
+            self._state = replace(self._state, published=True)
+            self._save()
+
+    def _note_stage_failure(self, stage: str, *, launched_duds: bool) -> None:
+        """Mark a stage failed and pace its next retry.
+
+        Probe-only failures (no capacity, over budget) keep the flat
+        ``rent_retry_cooldown_s`` cadence — they cost a few API calls and the
+        round should keep watching the market all day. An attempt that
+        LAUNCHED pods which all died doubles the stage's cooldown (capped 8×):
+        a zombie pool gets slower, cheaper bites instead of a hard stop, and
+        ``max_duds_per_stage`` is the money backstop behind it.
+        """
+        self._stage_failed.add(stage)
+        if self.rent_retry_cooldown_s <= 0:
+            return
+        backoff = self._retry_backoff.get(stage, 1.0)
+        if launched_duds:
+            backoff = min(backoff * 2.0, 8.0)
+            self._retry_backoff[stage] = backoff
+            log.warning("%s stage launched only duds; retry cooldown backed off "
+                        "to %.0fs", stage, self.rent_retry_cooldown_s * backoff)
+        self._next_retry_at[stage] = self.clock() + self.rent_retry_cooldown_s * backoff
 
     # ── within-round retry + JIT final (the late-rental phases) ──────────────
 
@@ -664,22 +764,40 @@ class ProvisionerLoop:
         """
         if not self._final_pending:
             return
+        if self._rent_inflight:
+            return                               # a rent worker is already busy
+        remaining = self._remaining_epoch_hours(block)
+        if remaining < self.final_hours + BOOT_MARGIN_HOURS:
+            # Watchdog terminal state: the heat never completed and the duel
+            # can no longer fit — say so LOUDLY instead of waiting silently
+            # into the next round (a crashed trainer looks exactly like a
+            # slow heat until this moment).
+            log.error("round %s: final still PENDING but its window closed "
+                      "(%.1fh left < final %.1fh + %.1fh boot) — the heat never "
+                      "completed; giving up on the final",
+                      self._provisioned_round, remaining, self.final_hours,
+                      BOOT_MARGIN_HOURS)
+            self._final_pending = False
+            self._persist_final_pending(False)
+            return
         if not (self._heat_marker_latched or self._heat_marker_seen()):
+            # Watchdog heartbeat: a pending final is invisible in the pod
+            # lists, so put its existence in the log on the same cadence as
+            # the loop heartbeat.
+            now = self.clock()
+            if now - self._pending_logged_at >= self.heartbeat_every_s:
+                self._pending_logged_at = now
+                log.info("round %s: final rental pending on heat_complete "
+                         "(%.1fh left in the round)", self._provisioned_round,
+                         remaining)
             return
         self._final_pending = False
         self._persist_final_pending(False)
-        remaining = self._remaining_epoch_hours(block)
-        if remaining < self.final_hours + BOOT_MARGIN_HOURS:
-            log.error("round %s: heat_complete arrived with only %.1fh left "
-                      "(< final %.1fh + %.1fh boot); not renting the final",
-                      self._provisioned_round, remaining, self.final_hours,
-                      BOOT_MARGIN_HOURS)
-            return
         slots = self._final_slots_now()
         log.info("round %s: heat settled — renting the final fleet JIT "
                  "(%d slot(s): king + actual finalists; %.1fh left)",
                  self._provisioned_round, slots, remaining)
-        self._rent_stages(self._provisioned_round, {"final": slots})
+        self._spawn_rent(self._provisioned_round, {"final": slots})
 
     def _maybe_retry_stages(self, block: int) -> None:
         """Bounded re-attempts for stages that rented NOTHING this round.
@@ -697,21 +815,33 @@ class ProvisionerLoop:
         """
         if not self._stage_failed or self._provisioned_round is None:
             return
-        if self.rent_retry_cooldown_s <= 0:
+        if self.rent_retry_cooldown_s <= 0 or self._rent_inflight:
             return
-        if self.clock() - self._last_rent_attempt_at < self.rent_retry_cooldown_s:
-            return
+        now = self.clock()
         remaining = self._remaining_epoch_hours(block)
         wants: dict[str, int] = {}
-        if "heat" in self._stage_failed:
-            plan = self._round_plan
-            heat_hours = float(plan["heat_train_hours"]) if plan else 0.0
-            if plan is None or remaining - self.final_hours < heat_hours:
-                self._stage_failed.discard("heat")
-                log.error("round %s: heat window closed (%.1fh left) — giving up "
-                          "on the heat fleet%s", self._provisioned_round, remaining,
-                          "" if plan else " (no cached plan after restart)")
-            else:
+        for stage in ("heat", "final"):         # heat first: the time-critical stage
+            if stage not in self._stage_failed:
+                continue
+            if now < self._next_retry_at.get(stage, 0.0):
+                continue                        # this stage's (backed-off) cooldown
+            duds = self._dud_pods.get(stage, 0)
+            if self.max_duds_per_stage > 0 and duds >= self.max_duds_per_stage:
+                self._stage_failed.discard(stage)
+                log.error("round %s: %s stage burned %d dud pod(s) — the market is "
+                          "selling broken pods; giving up RENTING for this round "
+                          "(money backstop, max_duds_per_stage=%d)",
+                          self._provisioned_round, stage, duds, self.max_duds_per_stage)
+                continue
+            if stage == "heat":
+                plan = self._round_plan
+                heat_hours = float(plan["heat_train_hours"]) if plan else 0.0
+                if plan is None or remaining - self.final_hours < heat_hours:
+                    self._stage_failed.discard("heat")
+                    log.error("round %s: heat window closed (%.1fh left) — giving up "
+                              "on the heat fleet%s", self._provisioned_round, remaining,
+                              "" if plan else " (no cached plan after restart)")
+                    continue
                 refleet = size_fleet(int(plan["eligible_challengers"]),
                                      int(plan["finalists"]), heat_hours,
                                      remaining, self.final_hours, self.policy)
@@ -719,24 +849,25 @@ class ProvisionerLoop:
                     wants["heat"] = refleet.heat.slots
                 else:
                     self._stage_failed.discard("heat")
-        if "final" in self._stage_failed:
-            if remaining < self.final_hours + BOOT_MARGIN_HOURS:
-                self._stage_failed.discard("final")
-                log.error("round %s: final window closed (%.1fh left) — giving up "
-                          "on the final fleet", self._provisioned_round, remaining)
-            else:
-                wants["final"] = self._final_slots_now()
+            elif stage == "final":
+                if remaining < self.final_hours + BOOT_MARGIN_HOURS:
+                    self._stage_failed.discard("final")
+                    log.error("round %s: final window closed (%.1fh left) — giving up "
+                              "on the final fleet", self._provisioned_round, remaining)
+                else:
+                    wants["final"] = self._final_slots_now()
         if wants:
             log.warning("round %s: retrying failed stage(s) %s (%.1fh left in the round)",
                         self._provisioned_round, sorted(wants), remaining)
-            self._rent_stages(self._provisioned_round, wants)
+            self._spawn_rent(self._provisioned_round, wants)
 
     def _persist_final_pending(self, value: bool) -> None:
         """Write the stage-phased flag through to the ledger (never in dry-run)."""
         if self.dry_run or self._state is None:
             return
-        self._state = replace(self._state, final_pending=value)
-        self._save()
+        with self._state_lock:
+            self._state = replace(self._state, final_pending=value)
+            self._save()
 
     def _iter_offers(self, sp, slots: int, stage: str):
         """Yield every viable ``(provider, price, candidate, pods)``, ladder order.
@@ -810,16 +941,15 @@ class ProvisionerLoop:
            stage-never-mixes-candidates fairness invariant holds.
 
         Everything is bounded by a wall-clock deadline (``escalate_deadline_s``
-        from the first rent attempt), not an attempt count — NOT because the
-        degraded path is acceptable (on a CPU-only orchestrator, trainer-local
-        training is effectively a lost round, and a locally-trained final
-        can never pass the validator's expected_gpu pin anyway), but because
-        this rent path runs INLINE in the service loop: while it escalates,
-        teardown ticks, the heartbeat, and the orphan reaper are all starved
-        (the same starvation class that swallowed the round-5 heat window on
-        2026-07-14 and forced eval renting onto a thread). The deadline caps
-        that blindness; raise it only knowing that cost. Deadline or ladder
-        exhausted ⇒ the stage degrades as before — fewer (or no) pods.
+        from this attempt's start), not an attempt count. Renting runs in a
+        worker thread, so the deadline no longer protects loop liveness; what
+        it bounds now is ONE attempt's lifetime: only one rent worker runs at
+        a time, so a wedged attempt would block the JIT final, the cooldown
+        retries, and — worst — the NEXT round's margin trigger. Ending the
+        attempt hands control to the retry machinery, which re-probes the
+        whole market fresh and paces itself with dud-aware backoff. Deadline
+        or ladder exhausted ⇒ the stage degrades for this attempt — fewer
+        (or no) pods — and the retry takes it from there.
         """
         deadline = self.clock() + self.escalate_deadline_s
         prov, _price, cand, pods = chosen[stage]
@@ -831,10 +961,14 @@ class ProvisionerLoop:
                 return self._maybe_top_up(round_id, stage, prov, cand, pods,
                                           healthy, slots, deadline, attempt)
             while True:
+                if self._rent_abort.is_set():
+                    log.warning("round %s %s: manifest published mid-escalation; "
+                                "aborting", round_id, stage)
+                    return []
                 if self.clock() >= deadline:
                     log.error("round %s %s: escalation deadline (%.0fs) spent with no "
-                              "healthy fleet; degrading (trainer covers the round)",
-                              round_id, stage, self.escalate_deadline_s)
+                              "healthy fleet this attempt; retry takes over on its "
+                              "cooldown", round_id, stage, self.escalate_deadline_s)
                     return []
                 nxt = next(offers, None)
                 if nxt is None:
@@ -944,9 +1078,13 @@ class ProvisionerLoop:
             return []
         # Write-ahead: the ledger owns these ids BEFORE we do anything else
         # with them — a crash from here on still tears them down on restart.
-        for pid in pod_ids:
-            self._state = add_instance(self._state, self._instance(prov, pid, stage, cand))
-        self._save()
+        # Locked: the teardown sweep on the loop thread mutates the same
+        # state while a rent worker runs.
+        with self._state_lock:
+            for pid in pod_ids:
+                self._state = add_instance(self._state,
+                                           self._instance(prov, pid, stage, cand))
+            self._save()
 
         healthy: list[tuple[PodInstance, PodAddress]] = []
         for i, pid in enumerate(pod_ids):
@@ -956,6 +1094,7 @@ class ProvisionerLoop:
                 continue
             # Terminate the dud and try ONE replacement — marketplace pods are
             # lemon-prone, but retrying forever would chase a bad batch all day.
+            self._dud_pods[stage] = self._dud_pods.get(stage, 0) + 1
             log.warning("round %s %s: pod %s failed boot/health; replacing once",
                         round_id, stage, pid)
             # Exclude the lemon's machine from the replacement pick — offer
@@ -980,6 +1119,7 @@ class ProvisionerLoop:
             else:
                 log.error("round %s %s: replacement %s also failed; dropping the slot",
                           round_id, stage, rid)
+                self._dud_pods[stage] = self._dud_pods.get(stage, 0) + 1
                 self._terminate_and_drop(prov, rid)
         return healthy
 
@@ -1157,6 +1297,18 @@ class ProvisionerLoop:
             self._persist_eval_latch(latest)
             return
         prov, price, cand, pods = picked
+        # The round spend breaker historically ignored eval (bounded only by
+        # its own max_pods × price cap). Close the gap one-way: eval respects
+        # what heat/final already committed this round; skipping is cheap
+        # because the validator's local CPU evals are genuinely viable.
+        projected = pods * float(price) * self.ttl_hours
+        committed = sum(self._committed.values())
+        if projected + committed > self.policy.max_spend_per_round:
+            log.warning("round %s eval: skipped by budget — $%.2f eval + $%.2f "
+                        "committed > cap $%.2f (validator evals run locally)",
+                        latest, projected, committed, self.policy.max_spend_per_round)
+            self._persist_eval_latch(latest)
+            return
         if self.dry_run:
             log.info("[dry-run] round %s eval: WOULD rent %d × %d-GPU %s pod(s) on %s "
                      "@ $%.2f/hr (tag cascade-%s-eval)", latest, pods,
@@ -1196,9 +1348,10 @@ class ProvisionerLoop:
         dry-run mutates nothing on disk; the in-memory latch suffices)."""
         if self.dry_run:
             return
-        self._state = (RoundState(round_id="") if self._state is None else self._state)
-        self._state = replace(self._state, last_evaled_round=round_id)
-        self._save()
+        with self._state_lock:
+            self._state = (RoundState(round_id="") if self._state is None else self._state)
+            self._state = replace(self._state, last_evaled_round=round_id)
+            self._save()
 
     def _publish_eval_hosts(self, entries: list[tuple[PodInstance, PodAddress]]) -> None:
         """Publish the eval pod to the VALIDATOR's hosts file.
@@ -1267,6 +1420,11 @@ class ProvisionerLoop:
             # comparison on, so a later cycle could no longer re-detect it.
             self._heat_marker_latched = True
         manifest = self._manifest_seen()
+        if manifest:
+            # Round over: tell any in-flight rent worker to stop escalating
+            # and skip its publish — its already-ledgered pods die right here
+            # in this sweep (or the next one).
+            self._rent_abort.set()
         # The eval pod's two signals are only worth store round-trips while an
         # eval pod is actually owned. ``newer_manifest`` compares the CURRENT
         # latest pointer against the round the pod was rented for.
@@ -1304,8 +1462,9 @@ class ProvisionerLoop:
         if dead:
             dead_eval = {i.instance_id for i in self._state.instances
                          if i.instance_id in dead and i.stage == "eval"}
-            self._state = drop_instances(self._state, dead)
-            self._save()
+            with self._state_lock:
+                self._state = drop_instances(self._state, dead)
+                self._save()
             # Each hosts file re-renders only when ITS pods died: the trainer's
             # file must never be touched by eval churn, and vice versa.
             if dead - dead_eval:
@@ -1419,6 +1578,12 @@ class ProvisionerLoop:
         lost track of," not "pods that look cascade-related." And like every
         provider mutation, termination is gated on ``dry_run``.
         """
+        if self._rent_inflight or self._eval_inflight:
+            # A rent worker is between a provider's create call and its
+            # ledger write-ahead at unpredictable moments — reaping now could
+            # kill a pod that is owned but not yet recorded. Skipping a tick
+            # is free; the reaper runs every cycle.
+            return
         owned = owned_ids(self._state) if self._state is not None else set()
         for name, prov in self.providers.items():
             lister = getattr(prov, "list_tagged", None)
@@ -1461,9 +1626,10 @@ class ProvisionerLoop:
                 prov.terminate(pid)
             except Exception as e:  # noqa: BLE001 — reconcile/TTL will retry
                 log.error("terminate %s failed: %s", pid, e)
-        self._state = drop_instances(self._state, {pid})
-        self._addrs.pop(pid, None)
-        self._save()
+        with self._state_lock:
+            self._state = drop_instances(self._state, {pid})
+            self._addrs.pop(pid, None)
+            self._save()
 
     def _save(self) -> None:
         with self._state_lock:

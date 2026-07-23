@@ -473,6 +473,7 @@ def _run(args) -> int:
     if final_rent_on not in ("margin", "heat_complete"):
         raise ProvisionError(
             f"final_rent_on must be 'margin' or 'heat_complete'; got {final_rent_on!r}")
+    max_duds_per_stage = int(top.get("max_duds_per_stage", 8))
 
     hosts_path = Path(top.get("hosts_path", "hosts.toml"))
     work_root = Path(args.work_root)
@@ -562,6 +563,7 @@ def _run(args) -> int:
         min_viable_fleet=min_viable_fleet,
         rent_retry_cooldown_s=rent_retry_cooldown_s,
         final_rent_on=final_rent_on,
+        max_duds_per_stage=max_duds_per_stage,
         dry_run=bool(args.dry_run),
         on_cycle=globals().get("_ensure_service_logging"),
     )

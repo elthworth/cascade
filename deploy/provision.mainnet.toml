@@ -23,10 +23,12 @@ max_spend_per_round   = 120.0       # mainnet heats run ~hours on rented pods;
 # the SKU ladder at the next (candidate × provider) rung, for at most
 # escalate_deadline_s of wall clock from its first rent attempt; a PARTIAL
 # fleet below min_viable_fleet of its slot demand gets one same-candidate
-# top-up batch. The deadline exists because the rent path blocks the service
-# loop while escalating (teardown/heartbeat starve) — NOT because degrading
-# is fine: the orchestrator is CPU-only, so a round with no rented fleet is
-# effectively lost (and a locally-trained final can't pass the L40S pin).
+# top-up batch. Renting runs in a worker thread (the loop keeps ticking);
+# the deadline bounds ONE attempt so the single worker never starves the
+# JIT final, the retries, or the next round's trigger. Degrading is NOT
+# fine — the orchestrator is CPU-only, so a round with no rented fleet is
+# effectively lost (and a locally-trained final can't pass the L40S pin) —
+# which is why failed stages keep retrying below.
 escalate_deadline_s   = 1800        # 0 = a failed rung is final (no escalation)
 min_viable_fleet      = 0.5         # 0 = never top up
 # A stage that rented NOTHING re-attempts the full pick→budget→rent pipeline
@@ -34,6 +36,10 @@ min_viable_fleet      = 0.5         # 0 = never top up
 # serial wave still fits; final: full duel hours + boot margin). 0 = one
 # attempt per round (the pre-retry behaviour).
 rent_retry_cooldown_s = 900
+# Money backstop for zombie pools (pods that rent but never boot): dud
+# attempts double the stage's retry cooldown (capped 8x), and after this many
+# dud pods in one round the stage stops renting entirely. <= 0 = no cap.
+max_duds_per_stage    = 8
 # Stage-phased rental: rent the L40S duel pods at the trainer's heat_complete
 # marker (finalists known — the fleet matches the ACTUAL duel) instead of at
 # the margin, saving ~a heat's worth of idle L40S billing per round. If the

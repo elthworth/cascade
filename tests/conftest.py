@@ -14,13 +14,36 @@ if str(REPO_ROOT) not in sys.path:
 
 from cascade.shared.config import ChainConfig, load_chain_config  # noqa: E402
 
+# Credentials that turn "fake" code paths real: with these present, code under
+# test that falls through to ``open_manifest_store`` (e.g. the receipt-index
+# refresh inside ``_publish_round_receipt``) writes to the LIVE buckets. That
+# happened on 2026-07-18 — a test's fixture round landed in the production
+# ``receipts/index.json`` because the suite ran in a shell with .env sourced.
+# Tests that need a credential set it explicitly via monkeypatch.setenv.
+_LIVE_CREDENTIAL_ENV = (
+    "HIPPIUS_S3_ACCESS_KEY", "HIPPIUS_S3_SECRET_KEY",
+    "HIPPIUS_HUB_TOKEN", "HIPPIUS_TOKEN",
+    "HIPPIUS_HUB_USERNAME", "HIPPIUS_REGISTRY_USERNAME",
+    "HIPPIUS_HUB_PASSWORD", "HIPPIUS_REGISTRY_PASSWORD",
+    "BACKUP_S3_ACCESS_KEY", "BACKUP_S3_SECRET_KEY",
+    "HF_TOKEN", "WANDB_API_KEY",
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_credentials(monkeypatch):
+    """Scrub storage/API credentials so no test can touch live services."""
+    for name in _LIVE_CREDENTIAL_ENV:
+        monkeypatch.delenv(name, raising=False)
+
 
 @pytest.fixture(scope="session")
 def cfg() -> ChainConfig:
     """The mainnet template with its ENFORCING pins neutralized.
 
     chain.toml carries the real launch pins (expected_gpu, the worker-image
-    digest, the go-live commit floor) — those assert real hardware and a real container env, neither of
+    digest, the go-live commit floor) — those assert real hardware, a real
+    container env, and post-launch block heights, none of
     which exists under pytest. Blank them HERE, in one place, so the template
     can stay production-true while every fixture-driven test still runs on
     fakes. Tests that exercise the pins set them explicitly via replace().

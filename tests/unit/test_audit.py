@@ -246,6 +246,21 @@ def test_missing_weights_warns(audit_cfg, signed_receipt):
     assert r.status == C.WARN
 
 
+def test_deliberate_burn_warns_not_fails(audit_cfg, signed_receipt):
+    # A scored round that burned on purpose (king unregistered at vote time, or
+    # [validator] force_burn): reward_uids is empty but the burn vector was set
+    # and recomputes. Must surface as WARN, never FAIL.
+    from cascade.shared.chain import decayed_share_vector
+
+    burn = decayed_share_vector(
+        [], len(signed_receipt.weights),
+        decay=audit_cfg.scoring.king_decay, burn_uid=audit_cfg.scoring.burn_uid,
+    )
+    r = C.check_weights(
+        replace(signed_receipt, reward_uids=(), weights=tuple(burn)), audit_cfg)
+    assert r.status == C.WARN and "deliberate burn" in r.detail
+
+
 # ── chain-backed halves ───────────────────────────────────────────────────────
 
 
@@ -304,6 +319,30 @@ def test_chain_payload_contradiction_fails_cutoff(signed_receipt):
     client.poll_commitments = lie
     r = C.check_commit_cutoff(signed_receipt, client)
     assert r.status == C.FAIL and "chain shows" in r.detail
+
+
+def test_recommitted_participant_verified_via_history(signed_receipt):
+    # A participant who re-committed for a later round is still verifiable:
+    # the cross-check reads the full reveal history and matches the recorded
+    # (block, payload) pair, instead of writing them off as unverifiable.
+    client = _FakeChain(signed_receipt)
+    orig = client.poll_commitments
+
+    def with_history(include_history=False):
+        from cascade.shared.chain import Commitment
+
+        commits = orig()
+        assert include_history  # the audit must ask for the full history
+        c = commits[0]
+        commits.append(Commitment(c.uid, c.hotkey, None,
+                                  "metro-v1:gen:hippius:next/round@sha256:" + "a" * 64,
+                                  c.commit_block + 500))
+        return commits
+
+    client.poll_commitments = with_history
+    r = C.check_commit_cutoff(signed_receipt, client)
+    assert r.status in (C.PASS, C.WARN)
+    assert "chain payloads match" in r.detail
 
 
 def test_onchain_weight_support_mismatch_warns(audit_cfg, signed_receipt):
@@ -508,7 +547,7 @@ def test_fetch_receipt_exits_cleanly_when_unresolvable(cfg, monkeypatch):
 # ── trainer-king vs validator-state-king divergence (seen live 2026-07-07) ────
 # After a service outage the trainer's king-read (on-chain incentive) pointed at
 # a different hotkey than the validator's persisted state king. That is a
-# legitimate steady state (OPEN_QUESTIONS #3): the vote goes to the MANIFEST
+# legitimate steady state: the vote goes to the MANIFEST
 # king; the state king only moves on a dethrone. The audit must surface it as
 # WARN, not fail the receipt.
 

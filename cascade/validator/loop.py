@@ -21,6 +21,7 @@ behind the defaults.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -67,19 +68,27 @@ EvaluateFn = Callable[[TrainedEntry, list[EvalWindow]], list[WindowScore]]
 GiftRowsFn = Callable[[TrainedEntry], dict | None]
 
 
-def participants_from_commitments(commitments: list, cutoff_block: int) -> tuple[Participant, ...]:
+def participants_from_commitments(commitments: list, cutoff_block: int,
+                                  floor_block: int = 0) -> tuple[Participant, ...]:
     """The round's eligible participant set, for the public receipt.
 
     Mirrors the trainer's eligibility rule (``trainer.loop.resolve_commitments``):
-    parseable generator pointers revealed STRICTLY BEFORE the epoch boundary,
-    latest commit per hotkey among the eligible ones — but keeps ``commit_block``
-    so an auditor can re-check every entrant against the cutoff. Sorted by UID
-    for a deterministic receipt body.
+    parseable generator pointers revealed STRICTLY BEFORE the epoch boundary and
+    at/after the go-live ``floor_block``, latest commit per hotkey among the
+    eligible ones — but keeps ``commit_block`` so an auditor can re-check every
+    entrant against the cutoff. Sorted by UID for a deterministic receipt body.
+
+    ``commitments`` should carry each hotkey's FULL reveal history
+    (``poll_commitments(include_history=True)``): with only the latest reveal, a
+    miner who re-committed after the boundary vanishes from the record even
+    though their eligible pre-cutoff entry fielded the round.
     """
     from ..interface.validation import parse_commit
 
     best: dict[str, Participant] = {}
     for c in commitments:
+        if floor_block and c.commit_block < floor_block:
+            continue
         if c.commit_block >= cutoff_block:
             continue
         parsed = parse_commit(c.payload)
@@ -106,6 +115,15 @@ class RoundOutcome:
     king_tenure_rounds: int = 0
 
 
+# How long the live loop keeps re-trying a round whose eval-pool index cannot
+# be READ at the pin gate (auth/network/5xx — not absence) before rejecting it
+# for real. Sized for observed Hippius blips (seconds-to-minutes) with a wide
+# margin — ~15 polls at the default 120s manifest cadence. A persistent failure
+# (bad credentials, dead endpoint) still ends in the loud reject receipt, just
+# this much later.
+POOL_PIN_READ_GRACE_SECONDS = 1800.0
+
+
 @dataclass
 class ValidatorRunner:
     cfg: ChainConfig
@@ -126,9 +144,20 @@ class ValidatorRunner:
     # Cascade — king-reign promotion (see cascade.validator.cascade). When wired,
     # the reign clock is reset on each dethrone, every reigning-king checkpoint is
     # scored (GIFT-Eval + TIME) and logged, and once per round the clock is checked;
-    # a fired Cascade vacates the champion throne to re-open the competition from
-    # the promoted warm-start init. None ⇒ Cascade is disabled (pure KOTH).
+    # a fired Cascade installs the promoted warm-start init and re-crowns the
+    # same king (DEC-CA-0004). None ⇒ Cascade is disabled (pure KOTH).
     cascade: CascadeController | None = None
+    # Block of the last successful (or attempted re-assert) weight-set; drives
+    # the between-rounds freshness push in _maybe_reassert_weights. None ⇒
+    # never set this process, so the first live-loop tick re-asserts
+    # immediately (a restart is also a manual "refresh last_update now").
+    _last_weight_block: int | None = None
+    # First-failure clock (time.monotonic) per round for an UNREADABLE eval-pool
+    # index at the pin gate. Within POOL_PIN_READ_GRACE_SECONDS the round is
+    # re-tried on the next manifest poll (no latch, no reject receipt); once the
+    # grace expires the reject goes through, loudly. In-memory on purpose: a
+    # restart merely restarts the grace clock, which is harmless.
+    _pin_read_first_failure: dict[str, float] = field(default_factory=dict, repr=False)
 
     # ── manifest gating ─────────────────────────────────────────────────────
 
@@ -151,6 +180,34 @@ class ValidatorRunner:
         gpu_reason = self._check_gpu(manifest)
         if gpu_reason is not None:
             return gpu_reason
+        ws_reason = self._check_warm_start(manifest)
+        if ws_reason is not None:
+            return ws_reason
+        return None
+
+    def _check_warm_start(self, manifest: TrainingManifest) -> str | None:
+        """Warm-start pin gate (Cascade, DEC-CA-0005): the manifest's signed
+        ``warm_start_ckpt`` must equal the init THIS validator's deterministic
+        promotion installed (its own ``warm_start_init_path`` file; "" before any
+        promotion). Every validator computes the same promotion (block-anchored
+        clock + trainer-signed bench scores), so agreement is fleet-wide. A
+        mismatch — trainer trained from random when a promotion is live, or from
+        a stale/foreign init — rejects the round rather than silently scoring
+        runs trained off-baseline; the trainer re-syncs by the next round. Only
+        enforced when Cascade is wired (off ⇒ pure KOTH, field ignored)."""
+        if self.cascade is None:
+            return None
+        expected = ""
+        p = Path(self.cfg.validator.warm_start_init_path)
+        if p.is_file():
+            try:
+                expected = str(json.loads(p.read_text(encoding="utf-8")).get("checkpoint_id") or "")
+            except Exception as e:  # noqa: BLE001 — unreadable pin must fail LOUD, not open
+                return f"warm_start_state_unreadable: {p}: {e}"
+        if manifest.warm_start_ckpt != expected:
+            return (f"warm_start_mismatch: manifest trained from "
+                    f"{manifest.warm_start_ckpt or '<random init>'!r}, this validator "
+                    f"expects {expected or '<random init>'!r}")
         return None
 
     @staticmethod
@@ -167,6 +224,12 @@ class ValidatorRunner:
         index or tampered tar surfaces here as a loud reject instead of scoring
         on attacker-chosen data. Unpinned manifests (older trainers) keep the
         legacy index-trust behaviour. Returns a reject reason or ``None``.
+
+        Raises :class:`~cascade.shared.hippius.StorageError` when the pool
+        index could not be READ (auth/network/5xx) — that is a transient, not a
+        verdict, and the caller decides retry-vs-reject (the live loop retries
+        within :data:`POOL_PIN_READ_GRACE_SECONDS`). Every other failure is a
+        reject reason.
         """
         if not (manifest.eval_pool_key and manifest.eval_pool_sha256):
             return None
@@ -176,7 +239,11 @@ class ValidatorRunner:
                     "validator's pool source reports no provenance")
         try:
             key, sha = prov_fn(int(manifest.round_id), block=block)
-        except Exception as e:  # noqa: BLE001 — an unreadable pool must reject, not crash
+        except Exception as e:  # noqa: BLE001 — an unverifiable pin must reject, not crash
+            from ..shared.hippius import StorageError
+
+            if isinstance(e, StorageError):
+                raise  # read failure, not a verdict — caller retries (see above)
             return f"pool_pin_unverifiable: provenance lookup failed: {e}"
         if not key or not sha:
             return ("pool_pin_unverifiable: manifest pins the eval pool but this "
@@ -186,6 +253,36 @@ class ValidatorRunner:
                     f"{manifest.eval_pool_sha256[:12]}…, this validator resolved "
                     f"{key}@{sha[:12]}…")
         return None
+
+    def _pool_pin_read_failed(
+        self, round_id: str, err: Exception, *, now: float | None = None
+    ) -> str | None:
+        """Grace bookkeeping for an UNREADABLE pool index at the pin gate.
+
+        Returns ``None`` while ``round_id``'s read failures span less than
+        :data:`POOL_PIN_READ_GRACE_SECONDS` — the caller then skips the cycle
+        with no latch and no receipt, so the next manifest poll re-attempts the
+        round from scratch. Once the grace expires, returns the terminal reject
+        reason (and forgets the round, so a later re-publish starts a fresh
+        grace window).
+        """
+        import time
+
+        now = time.monotonic() if now is None else now
+        first = self._pin_read_first_failure.setdefault(str(round_id), now)
+        waited = now - first
+        if waited < POOL_PIN_READ_GRACE_SECONDS:
+            log.warning(
+                "pool index unreadable at pin gate for round=%s (%s); retrying "
+                "next poll (%.0fs into %.0fs grace, no reject latched)",
+                round_id, err, waited, POOL_PIN_READ_GRACE_SECONDS,
+            )
+            return None
+        self._pin_read_first_failure.pop(str(round_id), None)
+        return (
+            f"pool_pin_unverifiable: provenance lookup failed persistently "
+            f"({waited:.0f}s > {POOL_PIN_READ_GRACE_SECONDS:.0f}s grace): {err}"
+        )
 
     def _check_gpu(self, manifest: TrainingManifest) -> str | None:
         """Matched-hardware gate for byte-exact re-derivation.
@@ -460,47 +557,49 @@ class ValidatorRunner:
         metrics = self._bench_scores_dict(entry) or self._bench_metrics_via_sidecar(entry)
         if metrics is None:
             return
-        self.cascade.record_checkpoint(entry.trained_pointer, now=now, **metrics)
+        self.cascade.record_checkpoint(entry.trained_pointer, now=now, size=entry.size, **metrics)
 
     def _cascade_round(
         self, manifest: TrainingManifest, outcome: RoundOutcome | None
     ) -> None:  # pragma: no cover — live-loop glue; the controller is unit-tested
-        """One Cascade step, run at the end of a round (after weights/receipts, so
-        the outgoing king still earns this round). Resets the reign clock on a
-        dethrone, records the reigning king's checkpoint, then checks the clock —
-        a fired Cascade vacates the champion throne so the field re-competes from
-        the promoted init next round. Fully guarded: Cascade never disturbs KOTH."""
+        """One Cascade step, run at the end of a round (after weights/receipts).
+        Resets the reign clock on a dethrone, records the reigning king's
+        checkpoint, then checks the clock — a fired Cascade installs the promoted
+        init and re-crowns the SAME king (DEC-CA-0004: the champion throne is
+        never touched). Fully guarded: Cascade never disturbs KOTH."""
         if self.cascade is None:
             return
         import time
 
         now = time.time()
         try:
+            # The reign clock runs on the round's epoch block — identical for every
+            # validator (from the signed manifest), so all fire on the same round.
+            block = self._epoch_start_block(manifest)
             # Reuse KOTH's dethrone signal to reset the clock (never reimplement it);
             # on genesis, crown the first champion so the reign clock starts ticking.
             if outcome is not None and outcome.transition.dethroned and outcome.transition.new_king_hotkey:
-                self.cascade.note_dethrone(outcome.transition.new_king_hotkey, now=now)
+                self.cascade.note_dethrone(outcome.transition.new_king_hotkey, block=block)
             elif self.cascade.state.king_hotkey is None and self.state.king_hotkey is not None:
-                self.cascade.note_dethrone(self.state.king_hotkey, now=now)
+                self.cascade.note_dethrone(self.state.king_hotkey, block=block)
             self._record_king_checkpoint(manifest, now)
-            event = self.cascade.cascade_check(now)
+            event = self.cascade.cascade_check(block=block, now=now)
             if event is not None:
                 self._apply_cascade(event)
         except Exception as e:  # noqa: BLE001 — Cascade must never disturb a round
             log.warning("cascade step failed for round=%s: %s", manifest.round_id, e)
 
     def _apply_cascade(self, event: object) -> None:  # pragma: no cover — live-loop glue
-        """Vacate the champion throne after a Cascade so the competition re-opens:
-        clear the king (tenure/streaks reset) and persist. Next round crowns
-        whoever wins from the newly-installed warm-start init."""
+        """Log a fired Cascade. The champion throne is deliberately untouched
+        (DEC-CA-0004): the king persists — vacating had no benefit (both roles
+        train from the shared init) and a vacant throne refillable only via the
+        dethrone branch froze the reign clock when the incumbent kept winning."""
         winner = getattr(event, "winner", None)
-        old_king = getattr(event, "old_king", None)
-        self.state = ChampionState()
-        self._persist_state()
+        king = getattr(event, "old_king", None)
         log.info(
-            "cascade: champion throne vacated (old king %s); field re-competes from "
+            "cascade: promotion installed (king %s persists); field trains from "
             "checkpoint %s next round",
-            (old_king or "?")[:12],
+            (king or "?")[:12],
             getattr(winner, "checkpoint_id", "?"),
         )
 
@@ -725,7 +824,9 @@ class ValidatorRunner:
             try:
                 epoch_hash = client.block_hash(epoch_start)
                 participants = participants_from_commitments(
-                    client.poll_commitments(), cutoff_block=epoch_start
+                    client.poll_commitments(include_history=True),
+                    cutoff_block=epoch_start,
+                    floor_block=self.cfg.round.commit_floor_block,
                 )
                 # Anchor for the dashboard's next-round countdown (best-effort;
                 # the client extrapolates block→wall-clock from this + as_of).
@@ -801,6 +902,31 @@ class ValidatorRunner:
 
     # ── live loop ────────────────────────────────────────────────────────────
 
+    def _publish_chain_status(self, client: object, store: object) -> None:  # pragma: no cover
+        """Publish the dashboard's live ``status/chain.json`` (current block,
+        epoch grid, stage windows, revealed submissions) on the poll cadence.
+
+        Purely presentational and best-effort — it feeds the web dashboard's
+        round-stage strip and live submissions panel between receipts, and any
+        failure (chain flake, storage outage) is swallowed: status telemetry
+        must never disturb a round.
+        """
+        from datetime import datetime
+
+        from ..shared.chain_status import build_chain_status, publish_chain_status
+
+        try:
+            status = build_chain_status(
+                self.cfg,
+                current_block=int(client.current_block()),  # type: ignore[attr-defined]
+                commitments=client.poll_commitments(),  # type: ignore[attr-defined]
+                network=str(getattr(client, "network", "")),
+                as_of=datetime.now(UTC).isoformat(timespec="seconds"),
+            )
+            publish_chain_status(store, status)
+        except Exception as e:  # noqa: BLE001 — telemetry only
+            log.debug("chain status publish skipped: %s", e)
+
     def run_forever(self, client: object, *, window_source: object) -> None:  # pragma: no cover
         """Poll the manifest bucket → evaluate → set weights, once per round.
 
@@ -811,7 +937,7 @@ class ValidatorRunner:
         """
         import time
 
-        from ..shared.hippius import open_manifest_store, read_latest_manifest
+        from ..shared.hippius import StorageError, open_manifest_store, read_latest_manifest
         from ..shared.manifest import load_manifest
 
         store = open_manifest_store(self.cfg.storage)
@@ -824,6 +950,10 @@ class ValidatorRunner:
         last_digest: str | None = None
         while True:
             try:
+                # Live dashboard telemetry first, every poll: between receipts
+                # this is the page's only fresh view of the chain (stage strip
+                # + live submissions). Best-effort; never affects the round.
+                self._publish_chain_status(client, store)
                 raw = read_latest_manifest(store)
                 digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
                 if digest == last_digest:
@@ -846,14 +976,30 @@ class ValidatorRunner:
                     )
                     # Gate first so a rejected manifest never moves weights.
                     reason = self.check_manifest(manifest)
+                    retry_pin = False
                     if reason is None:
                         # Pool-pin gate: the signed snapshot pin must match this
                         # validator's own deterministic selection for the round.
-                        reason = self.check_pool_pin(
-                            manifest, window_source,
-                            block=self._epoch_start_block(manifest),
-                        )
-                    if reason is not None:
+                        try:
+                            reason = self.check_pool_pin(
+                                manifest, window_source,
+                                block=self._epoch_start_block(manifest),
+                            )
+                        except StorageError as e:
+                            # The index could not be READ (auth/network/5xx) —
+                            # a transient, not a verdict. Within the grace
+                            # window: no latch, no receipt, retry next poll.
+                            reason = self._pool_pin_read_failed(manifest.round_id, e)
+                            retry_pin = reason is None
+                        else:
+                            self._pin_read_first_failure.pop(str(manifest.round_id), None)
+                    if retry_pin:
+                        # In-grace read failure: neither last_round nor
+                        # last_digest move, so the next manifest poll re-judges
+                        # this round from scratch. Falls through to the weight
+                        # re-assert + sleep below.
+                        pass
+                    elif reason is not None:
                         log.warning("rejecting manifest round=%s: %s", manifest.round_id, reason)
                         last_round, last_digest = manifest.round_id, digest
                         # A rejected round still gets a public receipt carrying
@@ -894,8 +1040,9 @@ class ValidatorRunner:
                         outcome = self.process_round(manifest, windows, base_seed)
                         # Back in sync — clear any accumulated resync holds so a
                         # future desync starts the safety-valve count from zero.
-                        if self.state.resync_holds:
-                            self.state = replace(self.state, resync_holds=0)
+                        if self.state.resync_holds or self.state.last_resync_round_id:
+                            self.state = replace(
+                                self.state, resync_holds=0, last_resync_round_id=None)
                         last_round, last_digest = manifest.round_id, digest
                         self._persist_state()
                         reward_uids = self._reward_uids(manifest, outcome, client)
@@ -929,7 +1076,49 @@ class ValidatorRunner:
                         self._cascade_round(manifest, outcome)
             except Exception as e:  # noqa: BLE001 — a service loop must not die on one round
                 log.exception("round processing failed; retrying after poll: %s", e)
+            try:
+                self._maybe_reassert_weights(client)
+            except Exception as e:  # noqa: BLE001
+                log.warning("weight re-assert check failed: %s", e)
             time.sleep(poll)
+
+    def _maybe_reassert_weights(self, client: object) -> None:
+        """Re-push the standing weight vector every ``weight_set_interval_blocks``.
+
+        Subtensor treats a validator whose ``last_update`` is older than the
+        subnet's ``activity_cutoff`` (5000 blocks ≈ 16.7 h on netuid 91) as
+        inactive in Yuma consensus. A mainnet round is 7200 blocks, so voting
+        only when a manifest lands blows through the cutoff every round — and a
+        stalled trainer silences the validator entirely. The vector needs no
+        manifest: it is recomputed from the persisted champion state (king +
+        registered prior kings; no champion burns to ``burn_uid``), so this is
+        a pure freshness signal that can never move the throne. The interval
+        must stay ≥ the subnet's ``weights_rate_limit`` (100 blocks on netuid
+        91) or the chain silently no-ops the extrinsic; ≤ 0 disables.
+        """
+        interval = int(self.cfg.validator.weight_set_interval_blocks)
+        if interval <= 0:
+            return
+        cur = int(client.current_block())  # type: ignore[attr-defined]
+        if self._last_weight_block is not None and cur - self._last_weight_block < interval:
+            return
+        uids: list[int] = []
+        if self.state.king_hotkey is not None:
+            uid = client.uid_for_hotkey(self.state.king_hotkey)  # type: ignore[attr-defined]
+            if uid is not None:
+                uids.append(uid)
+        for hk in self.state.former_kings:
+            uid = client.uid_for_hotkey(hk)  # type: ignore[attr-defined]
+            if uid is not None and uid not in uids:
+                uids.append(uid)
+        log.info("re-asserting weights (last set %s, block %d): reward_uids=%s",
+                 "never" if self._last_weight_block is None else
+                 f"{cur - self._last_weight_block} blocks ago", cur,
+                 uids or [self.cfg.scoring.burn_uid])
+        self._apply_weights(client, "weight-reassert", uids)
+        # Stamp even when the extrinsic failed: the next attempt comes after
+        # one interval (~27 more before the cutoff), not every poll tick.
+        self._last_weight_block = cur
 
     @staticmethod
     def _manifest_king_hotkey(manifest: TrainingManifest) -> str | None:
@@ -945,7 +1134,7 @@ class ValidatorRunner:
         """Whether the round's *trained* king matches the validator's champion.
 
         The trainer picks the king it trains from on-chain incentive, which lags
-        the validator's dethrone verdicts (OPEN_QUESTIONS #3). Until the champion
+        the validator's dethrone verdicts. Until the champion
         the validator crowned actually becomes the highest-incentive UID — and so
         the king the trainer trains — the two disagree, and a round trained
         against the *old* king must not have its verdict applied to the *new*
@@ -968,12 +1157,17 @@ class ValidatorRunner:
         forever would wedge the subnet — the valve abandons it and adopts the
         trainer's trained king (:func:`state.demote_to_trained`), and normal
         scoring resumes next round. ``king_resync_max_rounds <= 0`` disables the
-        valve (hold indefinitely). Pure: returns the new state; the caller
-        persists, votes, and publishes.
+        valve (hold indefinitely). The counter advances once per DISTINCT
+        un-synced round: a restart re-gates the same stale manifest, and
+        counting those re-gates let five restarts during a pause trip the
+        valve and demote a healthy champion (2026-07-22). Pure: returns the
+        new state; the caller persists, votes, and publishes.
         """
         champ = self.state.king_hotkey
         trained = self._manifest_king_hotkey(manifest)
-        holds = self.state.resync_holds + 1
+        round_id = str(manifest.round_id)
+        same_round = self.state.last_resync_round_id == round_id
+        holds = self.state.resync_holds if same_round else self.state.resync_holds + 1
         cap = self.cfg.scoring.king_resync_max_rounds
         if 0 < cap <= holds and trained is not None:
             log.warning(
@@ -996,7 +1190,7 @@ class ValidatorRunner:
             holds, cap if cap > 0 else "∞",
         )
         return (
-            replace(self.state, resync_holds=holds),
+            replace(self.state, resync_holds=holds, last_resync_round_id=round_id),
             f"king_resyncing: champion {champ} != trained king {trained}",
         )
 
@@ -1032,7 +1226,14 @@ class ValidatorRunner:
         champion and no manifest king); the loop hands that to
         ``set_equal_share_weights``, which burns to ``burn_uid`` rather than
         reverting. The list is otherwise deduped/range-checked there too.
+
+        ``[validator] force_burn`` empties the list HERE — not just at the
+        weight push — so the published receipt's ``reward_uids`` agree with the
+        burn vector actually set (``cascade-audit`` recomputes one from the
+        other and fails on a mismatch).
         """
+        if self.cfg.validator.force_burn:
+            return []
         uids: list[int] = []
         king_uid = self._king_uid_to_vote(manifest, client=client)
         if king_uid is not None:
@@ -1049,8 +1250,23 @@ class ValidatorRunner:
         Shared by the scored path and the king-resync path. Always sets weights —
         an empty ``reward_uids`` burns to ``burn_uid`` so emission still leaves the
         network. A failed extrinsic is logged and retried next round (the empty
-        vector is recorded truthfully in the receipt)."""
+        vector is recorded truthfully in the receipt).
+
+        ``[validator] force_burn`` overrides the vector to a burn HERE — the
+        single choke point every push flows through (scored, resync, re-assert) —
+        so the receipt records the burn that was actually set. Champion state is
+        never touched by this override."""
         from ..shared.chain import decayed_share_vector
+
+        if self.cfg.validator.force_burn:
+            log.warning(
+                "FORCE-BURN active (round=%s): %sburning to uid %d (champion state "
+                "untouched — unset [validator] force_burn and restart to resume voting)",
+                round_id,
+                f"dropping reward_uids={reward_uids}; " if reward_uids else "",
+                self.cfg.scoring.burn_uid,
+            )
+            reward_uids = []
 
         decay = self.cfg.scoring.king_decay
         try:
@@ -1063,6 +1279,9 @@ class ValidatorRunner:
             log.info("round=%s weights set: reward_uids=%s (n_uids=%d, burn_uid=%d)",
                      round_id, reward_uids or [self.cfg.scoring.burn_uid], n_uids,
                      self.cfg.scoring.burn_uid)
+            # Reset the re-assert timer (fake test clients lack current_block).
+            with contextlib.suppress(Exception):
+                self._last_weight_block = int(client.current_block())  # type: ignore[attr-defined]
             return vec
         except Exception as e:  # noqa: BLE001 — retried next round
             log.warning("weight set failed for round=%s (king holds, retried next round): %s",
@@ -1182,9 +1401,12 @@ def _warm_start_installer(path: Path) -> Callable[[object], None]:
             json.dumps(
                 {
                     "checkpoint_id": getattr(winner, "checkpoint_id", None),
+                    "size": getattr(winner, "size", ""),
                     "score": getattr(winner, "score", None),
                     "gifteval_crps": getattr(winner, "gifteval_crps", None),
                     "gifteval_mase": getattr(winner, "gifteval_mase", None),
+                    "boom_crps": getattr(winner, "boom_crps", None),
+                    "boom_mase": getattr(winner, "boom_mase", None),
                     "time_crps": getattr(winner, "time_crps", None),
                     "time_mase": getattr(winner, "time_mase", None),
                     "installed_at": time.time(),

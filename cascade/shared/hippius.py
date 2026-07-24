@@ -50,6 +50,33 @@ class StorageError(RuntimeError):
     """Any Hippius registry or S3 operation failed."""
 
 
+class ObjectNotFound(StorageError):
+    """A GET failed specifically because the OBJECT is absent (404 / NoSuchKey).
+
+    Distinct from a plain :class:`StorageError` (auth, network, wrong
+    bucket/region, a transient 5xx), which means "could not read" rather than
+    "not there". Callers that treat an absent object as a normal empty state —
+    e.g. a not-yet-published pool index — must catch THIS, never bare
+    ``StorageError``, so a read failure surfaces loudly instead of masquerading
+    as absence. Subclasses ``StorageError`` so existing ``except StorageError``
+    handlers keep catching it."""
+
+
+def _is_missing_object(exc: Exception) -> bool:
+    """True when a boto GET failed because the object key is absent.
+
+    Matches a missing OBJECT (``NoSuchKey`` / HTTP 404) only — a missing or
+    inaccessible BUCKET (``NoSuchBucket``, ``403``, connection errors) is a
+    read failure, not absence, and must NOT be reported as "not there".
+    """
+    resp = getattr(exc, "response", None)
+    if not isinstance(resp, dict):
+        return False
+    code = str(resp.get("Error", {}).get("Code", ""))
+    status = resp.get("ResponseMetadata", {}).get("HTTPStatusCode")
+    return code in {"NoSuchKey", "404"} or status == 404
+
+
 # A Hippius Hub model reference is ``<repo>@<digest>``: a repo id plus an
 # immutable OCI manifest digest. Two digest shapes are accepted — ``sha256:``
 # (the canonical Hub OCI digest a push returns) and ``hf:`` (a vanilla
@@ -630,6 +657,8 @@ class S3Store:
             resp = self.client().get_object(Bucket=self.cfg.bucket, Key=key)
             return resp["Body"].read()
         except Exception as e:  # noqa: BLE001
+            if _is_missing_object(e):
+                raise ObjectNotFound(f"s3_get_missing: {key}") from e
             raise StorageError(f"s3_get_failed: {key}: {e}") from e
 
     def get_text(self, key: str) -> str:
@@ -926,6 +955,12 @@ def publish_receipt(
     verdict, and each validator's authoritative copy lives under its own
     prefix regardless. Returns the per-round key.
 
+    Exception: a REJECTED receipt for a round whose round key already holds a
+    SCORED one publishes nothing (see the guard below) — such a same-round
+    downgrade is a restarted validator re-gating an old manifest, and letting
+    it take the latest pointers blanked the public dashboard until the next
+    scored round.
+
     Receipts are the audit-facing artefact, so each object is written with a
     ``public-read`` ACL: third parties can then GET it (and run
     ``cascade-audit``) with zero credentials while the bucket — manifests,
@@ -947,9 +982,28 @@ def publish_receipt(
         import logging
 
         logging.getLogger("cascade.storage").warning(
-            "NOT overwriting scored receipt at %s with a rejected one "
-            "(same-round re-judgement); latest pointers still updated", round_key)
-        keys = keys[1:]
+            "suppressing rejected receipt for round %s: a scored receipt already "
+            "sits at %s. A same-round scored→rejected re-judgement is a restart "
+            "re-gating an old manifest (king_resyncing), not a new verdict — "
+            "publishing it blanked the public dashboard's king/verdict for days "
+            "(2026-07-21). Round key AND latest pointers keep the scored copy; "
+            "the rejection stays diagnosable here and in the journal.",
+            round_id, round_key)
+        return round_key
+    # Shared-pointer variant of the same protection: a validator that never
+    # scored this round (nothing at its own round key — e.g. it rejected at a
+    # gate) must still not steal the last-writer-wins shared pointer from
+    # another validator's scored verdict of the SAME round. Its own prefix
+    # keeps the rejection (that trail is the operator's diagnostic surface).
+    if (_receipt_status(receipt_text) == "rejected" and RECEIPT_LATEST_KEY in keys
+            and _scored_same_round_at(store, RECEIPT_LATEST_KEY, round_id)):
+        import logging
+
+        logging.getLogger("cascade.storage").warning(
+            "keeping shared %s on the scored round-%s receipt; this rejected "
+            "receipt publishes only under the validator's own prefix",
+            RECEIPT_LATEST_KEY, round_id)
+        keys.remove(RECEIPT_LATEST_KEY)
     try:
         for key in keys:
             store.put_text(key, receipt_text, content_type="application/json",
@@ -975,6 +1029,18 @@ def _scored_receipt_at(store: S3Store, key: str) -> bool:
     never a reason to fail a publish."""
     try:
         return _receipt_status(store.get_text(key)) == "scored"
+    except Exception:  # noqa: BLE001 — absent key or store hiccup
+        return False
+
+
+def _scored_same_round_at(store: S3Store, key: str, round_id: str) -> bool:
+    """Whether ``key`` holds a SCORED receipt for exactly ``round_id``.
+    A scored receipt for a DIFFERENT round reads False: a newer round's
+    rejection is real information and may move the pointer."""
+    try:
+        doc = json.loads(store.get_text(key))
+        return (isinstance(doc, dict) and str(doc.get("status")) == "scored"
+                and str(doc.get("round_id")) == str(round_id))
     except Exception:  # noqa: BLE001 — absent key or store hiccup
         return False
 
@@ -1210,10 +1276,19 @@ class PoolSnapshotMeta:
 
 
 def read_pool_index(store: S3Store) -> list[PoolSnapshotMeta]:
-    """Read the snapshot index, sorted by ``effective_block``. Empty if absent."""
+    """Read the snapshot index, sorted by ``effective_block``.
+
+    Returns ``[]`` only when the index is genuinely ABSENT (no snapshot
+    published yet). A read that FAILS — auth, network, wrong bucket/region, a
+    transient 5xx — raises :class:`StorageError` rather than masquerading as an
+    empty index. The old bare ``except StorageError: return []`` conflated the
+    two, so a pool-bucket read blip read as "no snapshot" and the validator
+    rejected every trainer-pinned round as ``pool_pin_unverifiable`` — silently
+    self-excluding from consensus (observed live 2026-07-22).
+    """
     try:
         text = store.get_text(POOL_INDEX_KEY)
-    except StorageError:
+    except ObjectNotFound:
         return []
     doc = json.loads(text)
     snaps = [PoolSnapshotMeta.from_dict(s) for s in doc.get("snapshots", [])]

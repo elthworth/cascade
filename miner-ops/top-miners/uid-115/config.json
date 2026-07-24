@@ -1,0 +1,25 @@
+{
+  "name": "cascade-fullctx-spectral-v4",
+  "description": "Full-context 4096 mixture with long seasonal periods, FFT GP, long memory, compiled OU volatility, and generic physical sensors.",
+  "min_length": 4096,
+  "max_length": 4096,
+  "family_weights": {
+    "trend_seasonal_ar": 0.17,
+    "regime_shift": 0.11,
+    "multiplicative": 0.11,
+    "ar2": 0.09,
+    "integrated": 0.07,
+    "threshold_ar": 0.06,
+    "chaotic": 0.06,
+    "spectral_gp": 0.07,
+    "long_memory": 0.06,
+    "ou_stochastic_vol": 0.07,
+    "physical_sensors": 0.05,
+    "intermittent": 0.05,
+    "pulse_outlier": 0.03
+  },
+  "tr_exc_lo": 0.4,
+  "tr_exc_hi": 2.5,
+  "gr_exc_lo": 0.3,
+  "gr_exc_hi": 1.5
+}

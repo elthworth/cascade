@@ -1,0 +1,24 @@
+{
+  "name": "cascade-fullctx-spectral-v2",
+  "description": "Full-context 4096 mixture with length-normalized trends, FFT GP, long-memory spectra, and fast regime-switching OU stochastic volatility.",
+  "min_length": 4096,
+  "max_length": 4096,
+  "family_weights": {
+    "trend_seasonal_ar": 0.18,
+    "regime_shift": 0.12,
+    "multiplicative": 0.12,
+    "ar2": 0.1,
+    "integrated": 0.08,
+    "threshold_ar": 0.06,
+    "chaotic": 0.06,
+    "spectral_gp": 0.07,
+    "long_memory": 0.06,
+    "ou_stochastic_vol": 0.07,
+    "intermittent": 0.05,
+    "pulse_outlier": 0.03
+  },
+  "tr_exc_lo": 0.4,
+  "tr_exc_hi": 2.5,
+  "gr_exc_lo": 0.3,
+  "gr_exc_hi": 1.5
+}

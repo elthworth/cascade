@@ -1,0 +1,30 @@
+{
+  "name": "cascade-fullctx-research-v18",
+  "description": "Cascade v16 plus an 8% period-7 non-negative demand prior adapted from public j-test/dasadas_v18.",
+  "min_length": 4096,
+  "max_length": 4096,
+  "family_weights": {
+    "trend_seasonal_ar": 0.1104,
+    "regime_shift": 0.1104,
+    "multiplicative": 0.0736,
+    "ar2": 0.138,
+    "integrated": 0.1104,
+    "threshold_ar": 0.0736,
+    "chaotic": 0.0368,
+    "spectral_gp": 0.0644,
+    "long_memory": 0.0552,
+    "ou_stochastic_vol": 0.092,
+    "physical_sensors": 0.0184,
+    "seasonal_counts": 0.0184,
+    "intermittent": 0.0092,
+    "pulse_outlier": 0.0092,
+    "weekly_demand": 0.08
+  },
+  "tr_exc_lo": 0.4,
+  "tr_exc_hi": 2.5,
+  "gr_exc_lo": 0.3,
+  "gr_exc_hi": 1.5,
+  "sa_clean_frac": 0.4,
+  "sa_clean_lo": 0.02,
+  "sa_clean_hi": 0.12
+}

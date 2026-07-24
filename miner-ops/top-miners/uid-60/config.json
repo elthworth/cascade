@@ -1,0 +1,18 @@
+{
+  "name": "custom-mixture-of-priors-v3.1",
+  "description": "Diverse deterministic prior (v3.1): v3's config (v1 family_weights + min_length 512 to match the 4096 eval context) PLUS length-normalized builders \u2014 trend/growth/drift rescaled from absolute slope*t to length-invariant slope*(t/L), so long series stay balanced instead of trend-dominated and the seasonal/AR/regime/chaos structure survives in the corpus. Verified on the real Toto2 backbone at the full 499.5M-token contract budget: v3.1 vs v3 = +1.30% mean over 8 seeds (6/8 positive), on top of v3's confirmed +3.51% over v1. Same length band [512,2048], same throughput (14.8x ref), byte-deterministic, no BLAS ops.",
+  "min_length": 512,
+  "max_length": 2048,
+  "family_weights": {
+    "trend_seasonal_ar": 0.26,
+    "regime_shift": 0.1,
+    "multiplicative": 0.16,
+    "ar2": 0.1,
+    "integrated": 0.08,
+    "threshold_ar": 0.06,
+    "chaotic": 0.05,
+    "rff_gp": 0.07,
+    "intermittent": 0.03,
+    "pulse_outlier": 0.03
+  }
+}

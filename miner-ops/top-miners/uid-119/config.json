@@ -1,0 +1,29 @@
+{
+  "name": "cascade-fullctx-spectral-v8",
+  "description": "Full-context 4096 mixture anchored on the proven v4 core, with fast FFT/compiled filters and small OU, physical, count, and multi-scale extensions.",
+  "min_length": 4096,
+  "max_length": 4096,
+  "family_weights": {
+    "trend_seasonal_ar": 0.18,
+    "regime_shift": 0.11,
+    "multiplicative": 0.12,
+    "ar2": 0.11,
+    "integrated": 0.09,
+    "threshold_ar": 0.05,
+    "chaotic": 0.04,
+    "spectral_gp": 0.08,
+    "long_memory": 0.05,
+    "ou_stochastic_vol": 0.05,
+    "physical_sensors": 0.04,
+    "seasonal_counts": 0.04,
+    "intermittent": 0.02,
+    "pulse_outlier": 0.02
+  },
+  "tr_exc_lo": 0.4,
+  "tr_exc_hi": 2.5,
+  "gr_exc_lo": 0.3,
+  "gr_exc_hi": 1.5,
+  "sa_clean_frac": 0.4,
+  "sa_clean_lo": 0.02,
+  "sa_clean_hi": 0.12
+}

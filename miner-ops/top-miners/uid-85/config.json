@@ -1,0 +1,22 @@
+{
+  "name": "custom-detrended-v3",
+  "description": "v3 CANDIDATE: v2's 10 families with the linear-trend (trend_seasonal_ar) and log-growth (multiplicative) terms drawn as a BIMODAL total EXCURSION instead of v2's slope*t, making the effective trend ~16x weaker and bimodal (~75% low-trend + ~25% trending). Fixes v2's largest measured defect: excess linear trend (v2 corpus trend-strength median ~0.42 at length 1536 vs real weather ~0.026). Persistence & family weights unchanged from v2. Beats v2 robustly on real weather at ctx 1024 (+12.9%) and ctx 1536 / gen-max 4096 (+8.4%, the production length). NOT yet validated at production CONTEXT 4096 or on trending/multi-domain data at high fidelity (see README). Fully seed-deterministic.",
+  "min_length": 64,
+  "max_length": 4096,
+  "family_weights": {
+    "trend_seasonal_ar": 0.22,
+    "regime_shift": 0.12,
+    "multiplicative": 0.14,
+    "ar2": 0.12,
+    "integrated": 0.1,
+    "threshold_ar": 0.06,
+    "chaotic": 0.07,
+    "rff_gp": 0.08,
+    "intermittent": 0.06,
+    "pulse_outlier": 0.03
+  },
+  "tr_exc_lo": 0.4,
+  "tr_exc_hi": 2.5,
+  "gr_exc_lo": 0.3,
+  "gr_exc_hi": 1.5
+}

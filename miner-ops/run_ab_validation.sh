@@ -2,11 +2,12 @@
 # A/B Validation: Conservative vs Original Config
 # Run on GPU pod with cascade environment
 
-set -e
+set -eo pipefail
 
 GENERATOR_DIR="my-generator"
 POOL_DIR="eval-pool/v1"
-HEAT_BUDGET=120  # 120 seconds per run (jan's standard)
+HEAT_BUDGET_SECONDS=120  # 120 seconds per run (jan's standard)
+TRAIN_HOURS=$(echo "scale=4; $HEAT_BUDGET_SECONDS / 3600" | bc)  # Convert to hours
 SEEDS=(42 43 44)  # 3-seed validation
 
 echo "========================================="
@@ -15,7 +16,7 @@ echo "========================================="
 echo ""
 echo "Generator: $GENERATOR_DIR"
 echo "Pool: $POOL_DIR"
-echo "Heat budget: ${HEAT_BUDGET}s per run"
+echo "Heat budget: ${HEAT_BUDGET_SECONDS}s (${TRAIN_HOURS}h)"
 echo "Seeds: ${SEEDS[@]}"
 echo ""
 
@@ -63,10 +64,10 @@ for seed in "${SEEDS[@]}"; do
 
     OUTPUT_FILE="$RESULTS_DIR/conservative_seed${seed}.log"
 
-    uv run cascade score "$GENERATOR_DIR" \
+    ~/.local/bin/uv run cascade score "$GENERATOR_DIR" \
         --pool-dir "$POOL_DIR" \
         --seed "$seed" \
-        --heat-budget "$HEAT_BUDGET" \
+        --train-hours "$TRAIN_HOURS" \
         2>&1 | tee "$OUTPUT_FILE"
 
     # Extract final score
@@ -106,10 +107,10 @@ for seed in "${SEEDS[@]}"; do
 
     OUTPUT_FILE="$RESULTS_DIR/original_seed${seed}.log"
 
-    uv run cascade score "$GENERATOR_DIR" \
+    ~/.local/bin/uv run cascade score "$GENERATOR_DIR" \
         --pool-dir "$POOL_DIR" \
         --seed "$seed" \
-        --heat-budget "$HEAT_BUDGET" \
+        --train-hours "$TRAIN_HOURS" \
         2>&1 | tee "$OUTPUT_FILE"
 
     # Extract final score
@@ -146,6 +147,15 @@ CONS_44=$(grep "CONSERVATIVE seed 44" "$RESULTS_DIR/summary.txt" | awk '{print $
 ORIG_42=$(grep "ORIGINAL seed 42" "$RESULTS_DIR/summary.txt" | awk '{print $4}')
 ORIG_43=$(grep "ORIGINAL seed 43" "$RESULTS_DIR/summary.txt" | awk '{print $4}')
 ORIG_44=$(grep "ORIGINAL seed 44" "$RESULTS_DIR/summary.txt" | awk '{print $4}')
+
+# Validate that all scores were extracted
+if [ -z "$CONS_42" ] || [ -z "$CONS_43" ] || [ -z "$CONS_44" ] || [ -z "$ORIG_42" ] || [ -z "$ORIG_43" ] || [ -z "$ORIG_44" ]; then
+    echo "ERROR: Failed to extract scores from logs. Check that 'geomean' appears in output."
+    echo "Debug info:"
+    echo "  CONS_42='$CONS_42' CONS_43='$CONS_43' CONS_44='$CONS_44'"
+    echo "  ORIG_42='$ORIG_42' ORIG_43='$ORIG_43' ORIG_44='$ORIG_44'"
+    exit 1
+fi
 
 echo "Seed 42: CONSERVATIVE $CONS_42 vs ORIGINAL $ORIG_42"
 echo "Seed 43: CONSERVATIVE $CONS_43 vs ORIGINAL $ORIG_43"
